@@ -1,0 +1,216 @@
+{
+  "protocol_version": "v1.0",
+  "seed": 0,
+  "hardware": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.10.11",
+    "torch": "2.14.0+cpu",
+    "cuda_available": false,
+    "spikingjelly": "0.0.0.0.14",
+    "cuda_device": null,
+    "cuda_version": null,
+    "cudnn_version": null
+  },
+  "config": {
+    "ann_epochs": 1,
+    "sg_epochs": 1,
+    "ft_epochs": 1,
+    "t_train": 16,
+    "t_eval_grid": [
+      2,
+      4,
+      8,
+      16,
+      32
+    ],
+    "accuracy_margin": 0.02
+  },
+  "ann_baseline": {
+    "test_acc": 0.0,
+    "test_loss": 2.32279,
+    "threshold_s": -0.02,
+    "best_epoch": 1,
+    "best_val_acc": 0.101562,
+    "total_epochs": 1,
+    "total_updates": 4,
+    "total_wall_s": 6.813,
+    "early_stopped": false
+  },
+  "method_a_sg": {
+    "training": {
+      "best_epoch": 1,
+      "best_val_acc": 0.105469,
+      "total_epochs": 1,
+      "total_updates": 4,
+      "total_wall_s": 13.54,
+      "early_stopped": false
+    },
+    "evaluation": {
+      "seed": 0,
+      "method": "snn_sg",
+      "ann_test_acc": 0.0,
+      "threshold_s": -0.02,
+      "accuracy_margin": 0.02,
+      "snn_evals": [
+        {
+          "T": 2,
+          "test_loss": 2.276521,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 4,
+          "test_loss": 2.276521,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 8,
+          "test_loss": 2.276521,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 16,
+          "test_loss": 2.276521,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 32,
+          "test_loss": 2.276521,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        }
+      ],
+      "min_qualifying_T": 2
+    }
+  },
+  "method_b_hybrid": {
+    "training": {
+      "ann_phase": {
+        "best_epoch": 1,
+        "best_val_acc": 0.101562,
+        "total_epochs": 1,
+        "total_updates": 4,
+        "total_wall_s": 6.813,
+        "early_stopped": false
+      },
+      "ft_phase": {
+        "best_epoch": 1,
+        "best_val_acc": 0.105469,
+        "total_epochs": 1,
+        "total_updates": 4,
+        "total_wall_s": 16.711,
+        "early_stopped": false
+      },
+      "calibrated_thresholds": {
+        "lif1": 0.692939,
+        "lif2": 0.242998,
+        "lif3": 0.386568
+      },
+      "total_wall_s": 23.524
+    },
+    "evaluation": {
+      "seed": 0,
+      "method": "snn_ft",
+      "ann_test_acc": 0.0,
+      "threshold_s": -0.02,
+      "accuracy_margin": 0.02,
+      "snn_evals": [
+        {
+          "T": 2,
+          "test_loss": 2.276684,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 4,
+          "test_loss": 2.276684,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 8,
+          "test_loss": 2.276684,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 16,
+          "test_loss": 2.276684,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        },
+        {
+          "T": 32,
+          "test_loss": 2.276684,
+          "test_acc": 0.0,
+          "qualifies": true,
+          "margin": 0.02
+        }
+      ],
+      "min_qualifying_T": 2
+    }
+  },
+  "pilot_checks": [
+    {
+      "label": "SNN-SG val_acc > 0.2 (learning check)",
+      "passed": false,
+      "detail": "best_val_acc = 0.1055"
+    },
+    {
+      "label": "SNN-FT val_acc > 0.2 (learning check)",
+      "passed": false,
+      "detail": "best_val_acc = 0.1055"
+    },
+    {
+      "label": "ANN test_acc > 0.80",
+      "passed": false,
+      "detail": "ann_test_acc = 0.0000"
+    },
+    {
+      "label": "SNN-SG qualifies at some T",
+      "passed": true,
+      "detail": "min_T = 2"
+    },
+    {
+      "label": "SNN-FT qualifies at some T",
+      "passed": true,
+      "detail": "min_T = 2"
+    },
+    {
+      "label": "T_eval grid is discriminative (acc range > 0.01 for SNN-SG)",
+      "passed": false,
+      "detail": "acc range = 0.0000 across T \u2208 [2, 4, 8, 16, 32]"
+    },
+    {
+      "label": "T_eval grid is discriminative (acc range > 0.01 for SNN-FT)",
+      "passed": false,
+      "detail": "acc range = 0.0000"
+    },
+    {
+      "label": "SNN-SG degradation at T=16 < 0.10 pp",
+      "passed": true,
+      "detail": "ANN=0.0000, SNN-SG@T16=0.0000, degradation=0.0000"
+    },
+    {
+      "label": "SNN-FT degradation at T=16 < 0.10 pp",
+      "passed": true,
+      "detail": "ANN=0.0000, SNN-FT@T16=0.0000, degradation=0.0000"
+    }
+  ],
+  "timing": {
+    "pilot_total_wall_s": 71.211,
+    "estimate_5seeds_wall_s": 185.321
+  }
+}
