@@ -112,15 +112,44 @@ class TrainConfig:
 
     # ---- Hybrid fine-tuning (ANN→SNN then SG fine-tune) ----
     snn_ft_epochs: int = 10
-    snn_ft_lr: float = 1e-4
+    snn_ft_lr: float = 1e-4       # lower LR for fine-tuning pre-trained weights
+    snn_ft_weight_decay: float = 1e-4
     snn_ft_batch_size: int = 128
 
-    # ---- Direct surrogate-gradient training ----
+    # ---- Direct surrogate-gradient training from scratch ----
     snn_sg_epochs: int = 30
     snn_sg_lr: float = 1e-3
+    snn_sg_weight_decay: float = 1e-4
     snn_sg_batch_size: int = 128
 
-    # ---- Shared ----
+    # ---- Early stopping (applied to all three training phases) ----
+    early_stop_patience: int = 7
+    """Stop if validation accuracy does not improve for this many consecutive epochs.
+    Applies independently to ANN training, SNN-SG training, and SNN-FT fine-tuning.
+    Pilot value: 7 epochs. May be revised after observing convergence curves."""
+
+    # ---- Gradient clipping (SNN only) ----
+    max_grad_norm: float = 1.0
+    """Maximum L2-norm of the gradient vector for SNN training.
+    Clip to this value before each optimizer step to prevent exploding gradients
+    through the surrogate gradient path. ANN training is not clipped (None)."""
+
+    # ---- Threshold calibration (Method B only) ----
+    calib_batches: int = 10
+    """Number of training batches to use for per-layer activation statistics
+    during ANN→SNN threshold calibration.  At batch_size=128 this covers
+    128*10=1,280 samples, which is sufficient for 99th-percentile estimation."""
+
+    calib_percentile: float = 99.0
+    """Percentile of post-ReLU activations used as LIF threshold per layer.
+    99.0 means ~1 % of inputs exceed the threshold, producing ≤1 spike/step."""
+
+    # ---- LR scheduler ----
+    lr_scheduler: str = "cosine"
+    """Learning rate schedule. Currently only 'cosine' (CosineAnnealingLR)
+    is supported. T_max is set to the maximum epoch count of each phase."""
+
+    # ---- DataLoader ----
     num_workers: int = 2
     """DataLoader workers. Set to 0 in Colab if multiprocessing causes issues."""
 
