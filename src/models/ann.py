@@ -2,7 +2,8 @@
 ANN model for the SNN-vs-ANN experiment.
 
 Architecture (locked, protocol v1.0):
-    Input:  [B, 2, 34, 34]  — ON/OFF event-rate frame
+    Input:  [B, 2, 34, 34]  — per-polarity event counts of the whole recording
+                              (sum over the T temporal bins of the SNN input)
     Conv1:  Conv2d(2→32, k=3, pad=1) + ReLU   → [B, 32, 34, 34]
     Pool1:  AvgPool2d(2)                        → [B, 32, 17, 17]
     Conv2:  Conv2d(32→64, k=3, pad=1) + ReLU   → [B, 64, 17, 17]
@@ -87,8 +88,8 @@ class ANN(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Float tensor of shape [B, C, H, W] — normalised event frame.
-               Expected: C=2, H=W=34, values in [0, 1].
+            x: Float tensor of shape [B, C, H, W] — aggregate event counts
+               (protocol v2.0: raw counts, not normalised to [0, 1]).
 
         Returns:
             Logits of shape [B, n_classes]. NOT softmax-ed.

@@ -1,0 +1,312 @@
+{
+  "run_id": "conv_init_check_s00_20261122T143752Z_3a62d508",
+  "args": {
+    "n_train": 4000,
+    "n_val": 1000,
+    "snn_epochs": 1,
+    "ann_epochs": 5,
+    "batch_size": 32,
+    "seed": 0,
+    "workers": 4,
+    "skip_f": true,
+    "variants": "data_fitted,fitted,offset,none",
+    "ft_epochs": 1,
+    "out_dir": "/Users/tytusfelbor/Documents/GitHub/SNN-vs-ANN/results/conversion_init_check"
+  },
+  "protocol_version": "v2.1-draft",
+  "preprocessing_signature": "event_bins_v2.1-9b1808cdecdc",
+  "F": {},
+  "B": {
+    "ann_epochs": 5,
+    "variants": {
+      "data_fitted": {
+        "conversion_info": {
+          "method": "layerwise_norm_lif_data_fitted",
+          "thresholds": {
+            "lif1": 1.0,
+            "lif2": 1.0,
+            "lif3": 1.0
+          },
+          "lambdas": {
+            "conv1": 1.0250601768493652,
+            "conv2": 2.0077643394470215,
+            "fc1": 8.897608757019043
+          },
+          "percentile": 99.0,
+          "input_map": "data_fitted",
+          "c": 0.83,
+          "k": 1.36,
+          "map_rmse": 0.060927695087702065,
+          "per_layer_map": {
+            "lif1": {
+              "c": 0.65,
+              "k": 2.4,
+              "rate_mse": 0.006970102898776531
+            },
+            "lif2": {
+              "c": 0.75,
+              "k": 2.0,
+              "rate_mse": 0.007065930403769016
+            },
+            "lif3": {
+              "c": 0.83,
+              "k": 1.4,
+              "rate_mse": 0.00985039584338665
+            }
+          },
+          "conversion_wall_s": 349.5
+        },
+        "fidelity": {
+          "n_samples": 1000,
+          "T": 24,
+          "ann_acc": 0.913,
+          "snn_acc": 0.737,
+          "agreement": 0.768,
+          "layer_rate_correlation": {
+            "lif1": 0.9384160041809082,
+            "lif2": 0.9331628680229187,
+            "lif3": 0.907536506652832
+          },
+          "layer_mean_rate": {
+            "lif1": 0.12463797628879547,
+            "lif2": 0.09401380270719528,
+            "lif3": 0.10051367431879044
+          },
+          "layer_mean_target_rate": {
+            "lif1": 0.13196507096290588,
+            "lif2": 0.08711809664964676,
+            "lif3": 0.09556746482849121
+          },
+          "max_acc_drop": 0.02,
+          "min_agreement": 0.9,
+          "passed": false,
+          "reasons": [
+            "accuracy drop 0.1760 > 0.02",
+            "prediction agreement 0.7680 < 0.9"
+          ]
+        },
+        "fine_tune": {
+          "loss_first_10pct": 0.5396742820739746,
+          "loss_last_10pct": 0.2879588045179844,
+          "val_acc_per_epoch": [
+            0.894
+          ],
+          "n_updates": 125,
+          "wall_s": 200.5
+        }
+      },
+      "fitted": {
+        "conversion_info": {
+          "method": "layerwise_norm_lif_fitted",
+          "thresholds": {
+            "lif1": 1.0,
+            "lif2": 1.0,
+            "lif3": 1.0
+          },
+          "lambdas": {
+            "conv1": 1.0356559753417969,
+            "conv2": 2.0240609645843506,
+            "fc1": 9.026290893554688
+          },
+          "percentile": 99.0,
+          "input_map": "fitted",
+          "c": 0.83,
+          "k": 1.36,
+          "map_rmse": 0.060927695087702065,
+          "per_layer_map": {
+            "lif1": {
+              "c": 0.83,
+              "k": 1.36,
+              "rate_mse": NaN
+            },
+            "lif2": {
+              "c": 0.83,
+              "k": 1.36,
+              "rate_mse": NaN
+            },
+            "lif3": {
+              "c": 0.83,
+              "k": 1.36,
+              "rate_mse": NaN
+            }
+          },
+          "conversion_wall_s": 23.5
+        },
+        "fidelity": {
+          "n_samples": 1000,
+          "T": 24,
+          "ann_acc": 0.913,
+          "snn_acc": 0.691,
+          "agreement": 0.718,
+          "layer_rate_correlation": {
+            "lif1": 0.9354328513145447,
+            "lif2": 0.9242472052574158,
+            "lif3": 0.8828997611999512
+          },
+          "layer_mean_rate": {
+            "lif1": 0.11286349594593048,
+            "lif2": 0.0731329694390297,
+            "lif3": 0.0826014056801796
+          },
+          "layer_mean_target_rate": {
+            "lif1": 0.130719393491745,
+            "lif2": 0.08649802207946777,
+            "lif3": 0.09435133635997772
+          },
+          "max_acc_drop": 0.02,
+          "min_agreement": 0.9,
+          "passed": false,
+          "reasons": [
+            "accuracy drop 0.2220 > 0.02",
+            "prediction agreement 0.7180 < 0.9"
+          ]
+        }
+      },
+      "offset": {
+        "conversion_info": {
+          "method": "layerwise_norm_lif_offset",
+          "thresholds": {
+            "lif1": 1.0,
+            "lif2": 1.0,
+            "lif3": 1.0
+          },
+          "lambdas": {
+            "conv1": 1.027431845664978,
+            "conv2": 2.022068500518799,
+            "fc1": 9.187836647033691
+          },
+          "percentile": 99.0,
+          "input_map": "offset",
+          "c": 1.0,
+          "k": 1.0,
+          "map_rmse": NaN,
+          "per_layer_map": {
+            "lif1": {
+              "c": 1.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            },
+            "lif2": {
+              "c": 1.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            },
+            "lif3": {
+              "c": 1.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            }
+          },
+          "conversion_wall_s": 23.6
+        },
+        "fidelity": {
+          "n_samples": 1000,
+          "T": 24,
+          "ann_acc": 0.913,
+          "snn_acc": 0.231,
+          "agreement": 0.25,
+          "layer_rate_correlation": {
+            "lif1": 0.8538561463356018,
+            "lif2": 0.7360270619392395,
+            "lif3": 0.6686757802963257
+          },
+          "layer_mean_rate": {
+            "lif1": 0.18324658274650574,
+            "lif2": 0.13518285751342773,
+            "lif3": 0.10368799418210983
+          },
+          "layer_mean_target_rate": {
+            "lif1": 0.13168460130691528,
+            "lif2": 0.08657345175743103,
+            "lif3": 0.09285980463027954
+          },
+          "max_acc_drop": 0.02,
+          "min_agreement": 0.9,
+          "passed": false,
+          "reasons": [
+            "accuracy drop 0.6820 > 0.02",
+            "prediction agreement 0.2500 < 0.9"
+          ]
+        }
+      },
+      "none": {
+        "conversion_info": {
+          "method": "layerwise_norm_lif_none",
+          "thresholds": {
+            "lif1": 1.0,
+            "lif2": 1.0,
+            "lif3": 1.0
+          },
+          "lambdas": {
+            "conv1": 1.0238934755325317,
+            "conv2": 1.993942379951477,
+            "fc1": 8.88367748260498
+          },
+          "percentile": 99.0,
+          "input_map": "none",
+          "c": 0.0,
+          "k": 1.0,
+          "map_rmse": NaN,
+          "per_layer_map": {
+            "lif1": {
+              "c": 0.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            },
+            "lif2": {
+              "c": 0.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            },
+            "lif3": {
+              "c": 0.0,
+              "k": 1.0,
+              "rate_mse": NaN
+            }
+          },
+          "conversion_wall_s": 23.6
+        },
+        "fidelity": {
+          "n_samples": 1000,
+          "T": 24,
+          "ann_acc": 0.913,
+          "snn_acc": 0.1,
+          "agreement": 0.105,
+          "layer_rate_correlation": {
+            "lif1": 0.9118415117263794,
+            "lif2": 0.4198037087917328,
+            "lif3": NaN
+          },
+          "layer_mean_rate": {
+            "lif1": 0.018031198531389236,
+            "lif2": 0.0008600508444942534,
+            "lif3": 0.0
+          },
+          "layer_mean_target_rate": {
+            "lif1": 0.13210339844226837,
+            "lif2": 0.08764953166246414,
+            "lif3": 0.09570064395666122
+          },
+          "max_acc_drop": 0.02,
+          "min_agreement": 0.9,
+          "passed": false,
+          "reasons": [
+            "accuracy drop 0.8130 > 0.02",
+            "prediction agreement 0.1050 < 0.9"
+          ]
+        }
+      }
+    }
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.12",
+    "torch": "2.15.0",
+    "cuda_available": false,
+    "spikingjelly": "0.0.0.0.14",
+    "cuda_device": null,
+    "cuda_version": null,
+    "cudnn_version": null
+  },
+  "wall_s": 971.2
+}

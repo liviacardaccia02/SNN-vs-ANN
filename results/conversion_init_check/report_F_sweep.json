@@ -1,0 +1,99 @@
+{
+  "run_id": "conv_init_check_s00_20261122T170405Z_2d695f1e",
+  "args": {
+    "n_train": 2000,
+    "n_val": 500,
+    "snn_epochs": 1,
+    "ann_epochs": 5,
+    "batch_size": 32,
+    "seed": 0,
+    "workers": 4,
+    "skip_f": false,
+    "skip_b": false,
+    "init_rates": "0.01,0.02,0.05,0.1,0.2",
+    "sweep_seeds": "0,1",
+    "variants": "data_fitted,fitted,offset,none",
+    "ft_epochs": 0,
+    "out_dir": "/Users/tytusfelbor/Documents/GitHub/SNN-vs-ANN/results/conversion_init_check"
+  },
+  "protocol_version": "v2.1-draft",
+  "preprocessing_signature": "event_bins_v2.1-9b1808cdecdc",
+  "F_sweep": {
+    "rates": {
+      "0.01": {
+        "val_acc_per_seed": [
+          0.746,
+          0.69
+        ],
+        "mean_val_acc": 0.718,
+        "loss_last_10pct_per_seed": [
+          1.2417256633440654,
+          1.205111066500346
+        ]
+      },
+      "0.02": {
+        "val_acc_per_seed": [
+          0.756,
+          0.692
+        ],
+        "mean_val_acc": 0.724,
+        "loss_last_10pct_per_seed": [
+          1.1183921198050182,
+          1.0767905910809834
+        ]
+      },
+      "0.05": {
+        "val_acc_per_seed": [
+          0.776,
+          0.706
+        ],
+        "mean_val_acc": 0.741,
+        "loss_last_10pct_per_seed": [
+          1.0285787185033162,
+          0.9804562330245972
+        ]
+      },
+      "0.1": {
+        "val_acc_per_seed": [
+          0.762,
+          0.702
+        ],
+        "mean_val_acc": 0.732,
+        "loss_last_10pct_per_seed": [
+          1.1059095362822216,
+          1.0873631437619526
+        ]
+      },
+      "0.2": {
+        "val_acc_per_seed": [
+          0.692,
+          0.7
+        ],
+        "mean_val_acc": 0.696,
+        "loss_last_10pct_per_seed": [
+          1.2552597920099895,
+          1.2188809514045715
+        ]
+      }
+    },
+    "seeds": [
+      0,
+      1
+    ],
+    "selected_rate": 0.05,
+    "rule": "max mean val acc; ties within 1 pp -> lower rate",
+    "n_updates_per_run": 63,
+    "epochs": 1
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.12",
+    "torch": "2.15.0",
+    "cuda_available": false,
+    "spikingjelly": "0.0.0.0.14",
+    "cuda_device": null,
+    "cuda_version": null,
+    "cudnn_version": null
+  },
+  "wall_s": 1282.8
+}

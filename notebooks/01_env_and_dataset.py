@@ -188,24 +188,19 @@ print(f"  protocol_ver   : {cfg.experiment.protocol_version}")
 # Expected output: "Training samples: 60000, Test samples: 10000"
 
 # %%
-from src.data.nmnist import NMNISTFrameDataset, SENSOR_SIZE
+from src.data.nmnist import NMNISTEventDataset, SENSOR_SIZE, binning_spec_from_config
 
 print(f"Tonic sensor_size for N-MNIST: {SENSOR_SIZE}")
 assert SENSOR_SIZE == (34, 34, 2), f"Unexpected sensor_size: {SENSOR_SIZE}"
 
-print("\nLoading training set (downloading if needed)...")
-train_ds = NMNISTFrameDataset(
-    root=cfg.data.data_root,
-    train=True,
-    cache_root=cfg.data.cache_root,
-)
+# Protocol v2.0: events are binned by timestamp into n_time_bins ordered frames.
+spec = binning_spec_from_config(cfg)
+print(f"Binning spec: {spec}")
 
+print("\nLoading training set (downloading if needed)...")
+train_ds = NMNISTEventDataset(cfg.data.data_root, True, spec, representation="snn")
 print("Loading test set...")
-test_ds = NMNISTFrameDataset(
-    root=cfg.data.data_root,
-    train=False,
-    cache_root=cfg.data.cache_root,
-)
+test_ds = NMNISTEventDataset(cfg.data.data_root, False, spec, representation="snn")
 
 print(f"\nTraining samples : {len(train_ds):,}")
 print(f"Test samples     : {len(test_ds):,}")
@@ -215,26 +210,25 @@ assert len(test_ds) == 10_000,  f"Expected 10000 test samples, got {len(test_ds)
 print("\nDataset sizes: OK")
 
 # %% [markdown]
-# ## Cell 7 — Inspect a single sample
+# ## Cell 7 — Inspect a single sample (original events -> temporal bins -> aggregate)
 
 # %%
-frame, label = train_ds[0]
+events, label = train_ds.get_events(0)
+frames, info, _ = train_ds.get_binned(0)
+x_snn, _ = train_ds[0]
+x_ann = x_snn.sum(dim=0)
 
-print(f"Sample 0:")
-print(f"  label      : {label}  (digit '{label}')")
-print(f"  frame.shape: {tuple(frame.shape)}  (channels=2, H=34, W=34)")
-print(f"  frame.dtype: {frame.dtype}")
-print(f"  frame.min(): {frame.min():.4f}")
-print(f"  frame.max(): {frame.max():.4f}")
-print(f"  ON  channel (ch0) — sum: {frame[0].sum():.1f}  nonzero: {(frame[0]>0).sum().item()}")
-print(f"  OFF channel (ch1) — sum: {frame[1].sum():.1f}  nonzero: {(frame[1]>0).sum().item()}")
+print(f"Sample 0: label={label}")
+print(f"  original events : {events.size}  dtype={events.dtype}")
+print(f"  t range (µs)    : [{events['t'].min()}, {events['t'].max()}]")
+print(f"  polarity counts : p=0 {(events['p']==0).sum()}, p=1 {(events['p']==1).sum()}")
+print(f"  SNN tensor      : {tuple(x_snn.shape)}  (T, C, H, W) raw counts")
+print(f"  events per bin  : {info.events_per_bin}")
+print(f"  ANN tensor      : {tuple(x_ann.shape)}  (sum over T)")
 
-# Assertions
-assert frame.shape == (2, 34, 34),   f"Shape error: {frame.shape}"
-assert frame.dtype == torch.float32, f"Dtype error: {frame.dtype}"
-assert frame.min() >= 0.0,           f"Min value below 0: {frame.min()}"
-assert frame.max() <= 1.0 + 1e-5,   f"Max value above 1: {frame.max()}"
-assert torch.isfinite(frame).all(),  "Frame contains NaN or Inf"
+assert x_snn.shape == (cfg.preprocess.n_time_bins, 2, 34, 34)
+assert int(x_snn.sum()) + info.n_events_outside_window == events.size, "event conservation"
+assert torch.isfinite(x_snn).all(), "Tensor contains NaN or Inf"
 print("\nSingle-sample checks: OK")
 
 # %% [markdown]
@@ -303,56 +297,21 @@ for idx in [0, 500, 1234]:
 print("Preprocessing determinism: OK (same index → same tensor, 3 samples checked)")
 
 # %% [markdown]
-# ## Cell 11 — Visualize samples
+# ## Cell 11 — Temporal visualisation + end-to-end smoke test
+#
+# The v1.0 aggregate-image visualisation is removed: an aggregate alone cannot
+# show that temporal structure is preserved. The smoke-test script writes
+# results/event_pipeline_smoke/temporal_bins_sample.png (16 bins, both
+# polarities, per-bin counts and time ranges) and smoke_report.json.
 
 # %%
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import torch
-
-fig = plt.figure(figsize=(14, 6))
-gs = gridspec.GridSpec(2, 10, figure=fig, hspace=0.4, wspace=0.1)
-
-# Pick one example per digit class from the training set
-# (scan until we find each class — N-MNIST is sorted, so this is quick)
-found = {}
-idx = 0
-while len(found) < 10 and idx < len(train_ds):
-    frame, label = train_ds[idx]
-    if label not in found:
-        found[label] = (frame, idx)
-    idx += 1
-
-for col in range(10):
-    frame, sample_idx = found[col]
-    # ON events (ch 0) — top row
-    ax_on = fig.add_subplot(gs[0, col])
-    ax_on.imshow(frame[0].numpy(), cmap='Greens', vmin=0, vmax=1)
-    ax_on.axis('off')
-    if col == 0:
-        ax_on.set_title("ON", fontsize=8, loc='left', pad=2)
-
-    # OFF events (ch 1) — bottom row
-    ax_off = fig.add_subplot(gs[1, col])
-    ax_off.imshow(frame[1].numpy(), cmap='Reds', vmin=0, vmax=1)
-    ax_off.set_xlabel(f"'{col}'\n(idx {sample_idx})", fontsize=6)
-    ax_off.set_xticks([]); ax_off.set_yticks([])
-    if col == 0:
-        ax_off.set_title("OFF", fontsize=8, loc='left', pad=2)
-
-fig.suptitle(
-    "N-MNIST: one example per digit class\n"
-    "Top row = ON events (green)  |  Bottom row = OFF events (red)\n"
-    "Values normalized per-sample to [0, 1]",
-    fontsize=9,
-)
-plt.savefig(os.path.join(cfg.experiment.output_dir, "stage1_sample_visualization.png"),
-            dpi=150, bbox_inches='tight')
-if IN_COLAB:
-    plt.show()
-else:
-    plt.close()   # Non-interactive; figure is saved; don't block the script
-print("Saved to results/stage1_sample_visualization.png")
+import subprocess, sys
+r = subprocess.run([sys.executable, "scripts/test_event_pipeline.py"], cwd=CLONE_DIR,
+                   capture_output=True, text=True)
+print(r.stdout[-6000:])
+if r.returncode != 0:
+    print(r.stderr[-3000:])
+    raise RuntimeError("Event pipeline smoke test FAILED")
 
 # %% [markdown]
 # ## Cell 12 — Run unit tests
@@ -362,7 +321,7 @@ print("Saved to results/stage1_sample_visualization.png")
 import subprocess, sys
 
 result = subprocess.run(
-    [sys.executable, "-m", "pytest", "tests/test_dataset.py", "-v", "--tb=short"],
+    [sys.executable, "-m", "pytest", "tests/", "-v", "--tb=short"],
     capture_output=True,
     text=True,
     cwd=CLONE_DIR,
@@ -389,26 +348,14 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
 set_all_seeds(seed=0)
-loaders = make_dataloaders(cfg, experiment_seed=0)
-
-# Pull one batch from each loader
-for split_name, loader in loaders.items():
-    batch_frames, batch_labels = next(iter(loader))
-    batch_frames = batch_frames.to(DEVICE)
-
-    assert batch_frames.shape == (cfg.train.ann_batch_size, 2, 34, 34), (
-        f"{split_name} batch shape {batch_frames.shape} unexpected"
-    )
-    assert batch_labels.shape == (cfg.train.ann_batch_size,)
-    assert batch_frames.min() >= 0.0
-    assert batch_frames.max() <= 1.0 + 1e-5
-    assert torch.isfinite(batch_frames).all()
-
-    print(
-        f"{split_name:5s}: batch shape {tuple(batch_frames.shape)}  "
-        f"labels[0:5]={batch_labels[:5].tolist()}  "
-        f"device={batch_frames.device}"
-    )
+for rep, shape in [("snn", (cfg.preprocess.n_time_bins, 2, 34, 34)), ("ann", (2, 34, 34))]:
+    loaders = make_dataloaders(cfg, experiment_seed=0, representation=rep, batch_size=32)
+    for split_name, loader in loaders.items():
+        xb, yb = next(iter(loader))
+        xb = xb.to(DEVICE)
+        assert tuple(xb.shape[1:]) == shape, f"{rep}/{split_name} batch shape {tuple(xb.shape)}"
+        assert xb.min() >= 0.0 and torch.isfinite(xb).all()
+        print(f"{rep}/{split_name:5s}: batch {tuple(xb.shape)} labels[0:5]={yb[:5].tolist()} device={xb.device}")
 
 print("\nDataLoader smoke test: OK")
 print("\n" + "="*60)

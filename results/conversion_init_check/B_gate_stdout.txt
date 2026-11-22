@@ -1,0 +1,10 @@
+train subset 4000, val subset 1000 (validation split only), device cpu
+
+[B] ANN training on mean-over-bins input, conversion, fidelity gate
+  data_fitted + fine-tune 1 ep (lr 0.0001): loss 0.540 -> 0.288, val acc [0.894]
+  input_map=data_fitted: gate FAIL | ANN val 0.9130 | SNN(T=24) val 0.7370 | agreement 0.7680 | rate corr {'lif1': 0.938, 'lif2': 0.933, 'lif3': 0.908} | rates {'lif1': 0.125, 'lif2': 0.094, 'lif3': 0.101} vs target {'lif1': 0.132, 'lif2': 0.087, 'lif3': 0.096}
+  input_map=fitted     : gate FAIL | ANN val 0.9130 | SNN(T=24) val 0.6910 | agreement 0.7180 | rate corr {'lif1': 0.935, 'lif2': 0.924, 'lif3': 0.883} | rates {'lif1': 0.113, 'lif2': 0.073, 'lif3': 0.083} vs target {'lif1': 0.131, 'lif2': 0.086, 'lif3': 0.094}
+  input_map=offset     : gate FAIL | ANN val 0.9130 | SNN(T=24) val 0.2310 | agreement 0.2500 | rate corr {'lif1': 0.854, 'lif2': 0.736, 'lif3': 0.669} | rates {'lif1': 0.183, 'lif2': 0.135, 'lif3': 0.104} vs target {'lif1': 0.132, 'lif2': 0.087, 'lif3': 0.093}
+  input_map=none       : gate FAIL | ANN val 0.9130 | SNN(T=24) val 0.1000 | agreement 0.1050 | rate corr {'lif1': 0.912, 'lif2': 0.42, 'lif3': nan} | rates {'lif1': 0.018, 'lif2': 0.001, 'lif3': 0.0} vs target {'lif1': 0.132, 'lif2': 0.088, 'lif3': 0.096}
+
+report: results/conversion_init_check/report_B.json  (971.2 s)

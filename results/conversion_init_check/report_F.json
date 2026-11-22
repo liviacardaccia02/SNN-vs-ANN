@@ -1,0 +1,67 @@
+{
+  "run_id": "conv_init_check_s00_20261122T153505Z_a7f0ca0f",
+  "args": {
+    "n_train": 2000,
+    "n_val": 500,
+    "snn_epochs": 1,
+    "ann_epochs": 5,
+    "batch_size": 32,
+    "seed": 0,
+    "workers": 4,
+    "skip_f": false,
+    "skip_b": true,
+    "variants": "data_fitted,fitted,offset,none",
+    "ft_epochs": 0,
+    "out_dir": "/Users/tytusfelbor/Documents/GitHub/SNN-vs-ANN/results/conversion_init_check"
+  },
+  "protocol_version": "v2.1-draft",
+  "preprocessing_signature": "event_bins_v2.1-9b1808cdecdc",
+  "F": {
+    "default_init": {
+      "loss_first_10pct": 2.307389577229818,
+      "loss_last_10pct": 2.262449304262797,
+      "val_acc_per_epoch": [
+        0.132
+      ],
+      "n_updates": 63,
+      "wall_s": 110.5
+    },
+    "calibration": {
+      "lif1": {
+        "gain": 4.06794432108305,
+        "rate_before": 0.0034351282878730535,
+        "rate_after": 0.048084870616732445
+      },
+      "lif2": {
+        "gain": 8.65964323360066,
+        "rate_before": 0.0,
+        "rate_after": 0.05209280187833405
+      },
+      "lif3": {
+        "gain": 7.635060803383353,
+        "rate_before": 0.0,
+        "rate_after": 0.051584879557291664
+      }
+    },
+    "firing_rate_init": {
+      "loss_first_10pct": 2.2645223140716553,
+      "loss_last_10pct": 0.9985429445902506,
+      "val_acc_per_epoch": [
+        0.734
+      ],
+      "n_updates": 63,
+      "wall_s": 109.0
+    }
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.12",
+    "torch": "2.15.0",
+    "cuda_available": false,
+    "spikingjelly": "0.0.0.0.14",
+    "cuda_device": null,
+    "cuda_version": null,
+    "cudnn_version": null
+  },
+  "wall_s": 241.8
+}

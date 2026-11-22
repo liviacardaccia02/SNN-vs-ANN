@@ -118,6 +118,7 @@ def train_ann(
 
     epoch_logs: list[EpochLog] = []
     total_updates = 0
+    sample_timesteps = 0          # D-E: ANN = 1 time-step per sample
     best_val_acc = -1.0
     best_epoch = 0
     ckpt_path = checkpoint_dir / f"ann_seed{seed:02d}_best.pt"
@@ -139,6 +140,7 @@ def train_ann(
 
         epoch_elapsed = time.time() - epoch_start
         total_updates += n_updates
+        sample_timesteps += len(train_loader.dataset) * 1
 
         log = EpochLog(
             epoch=epoch,
@@ -189,6 +191,7 @@ def train_ann(
         epoch_logs=epoch_logs,
         total_epochs=len(epoch_logs),
         total_updates=total_updates,
+        train_sample_timesteps=sample_timesteps,
         total_wall_s=total_wall_s,
         early_stopped=early_stopping.counter >= early_stopping.patience,
         hardware=hardware,

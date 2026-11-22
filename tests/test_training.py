@@ -57,18 +57,40 @@ def cfg() -> Config:
     # Tiny calibration (1 batch)
     c.train.calib_batches   = 1
     c.train.calib_percentile = 99.0
+    # Random labels on 8 samples: the converted SNN cannot be expected to match
+    # an untrained ANN, so the gate is recorded, not enforced (tested separately).
+    c.train.conversion_gate = 'report'
+    c.snn.init_calib_batches = 1
     return c
 
 
+def _synthetic_pair(seed: int, n: int = 8, T: int = 24):
+    """Synthetic temporal sequences [n, T, 2, 34, 34] and their aggregate
+    [n, 2, 34, 34] (mean over T) — mirrors the real SNN/ANN representations."""
+    g = torch.Generator().manual_seed(seed)
+    rate = 0.3 * torch.rand(n, T, 2, 34, 34, generator=g)
+    seq = torch.poisson(rate, generator=g)
+    y = torch.randint(0, 10, (n,), generator=g)
+    return seq, seq.mean(dim=1), y
+
+
 @pytest.fixture(scope="module")
-def synthetic_loaders():
-    """Return {'train', 'val', 'test'} DataLoaders with random float32 frames."""
-    torch.manual_seed(0)
-    def _make(n=8):
-        x = torch.rand(n, 2, 34, 34)
-        y = torch.randint(0, 10, (n,))
-        return DataLoader(TensorDataset(x, y), batch_size=4, shuffle=False)
-    return {'train': _make(8), 'val': _make(8), 'test': _make(8)}
+def synthetic_pairs():
+    return {split: _synthetic_pair(i) for i, split in enumerate(('train', 'val', 'test'))}
+
+
+@pytest.fixture(scope="module")
+def synthetic_loaders(synthetic_pairs):
+    """SNN loaders: batches of temporal sequences [B, T, 2, 34, 34]."""
+    return {k: DataLoader(TensorDataset(seq, y), batch_size=4, shuffle=False)
+            for k, (seq, _, y) in synthetic_pairs.items()}
+
+
+@pytest.fixture(scope="module")
+def synthetic_ann_loaders(synthetic_pairs):
+    """ANN loaders: aggregate counts [B, 2, 34, 34] of the same samples."""
+    return {k: DataLoader(TensorDataset(agg, y), batch_size=4, shuffle=False)
+            for k, (_, agg, y) in synthetic_pairs.items()}
 
 
 @pytest.fixture(scope="module")
@@ -126,10 +148,10 @@ class TestEarlyStopping:
 class TestTrainANN:
 
     @pytest.fixture(scope="class")
-    def ann_result(self, cfg, synthetic_loaders, device, checkpoint_dir):
+    def ann_result(self, cfg, synthetic_ann_loaders, device, checkpoint_dir):
         return train_ann(
             cfg, seed=0,
-            dataloaders=synthetic_loaders,
+            dataloaders=synthetic_ann_loaders,
             device=device,
             checkpoint_dir=checkpoint_dir,
             verbose=False,
@@ -254,10 +276,11 @@ class TestTrainSNNSG:
 class TestTrainSNNHybrid:
 
     @pytest.fixture(scope="class")
-    def hybrid_result(self, cfg, synthetic_loaders, device, checkpoint_dir):
+    def hybrid_result(self, cfg, synthetic_loaders, synthetic_ann_loaders, device, checkpoint_dir):
         return train_snn_hybrid(
             cfg, seed=2,
-            dataloaders=synthetic_loaders,
+            snn_dataloaders=synthetic_loaders,
+            ann_dataloaders=synthetic_ann_loaders,
             device=device,
             checkpoint_dir=checkpoint_dir,
             verbose=False,
@@ -329,7 +352,7 @@ class TestTrainSNNHybrid:
 
 class TestEarlyStoppingIntegration:
 
-    def test_early_stopping_triggers_in_ann(self, cfg, synthetic_loaders,
+    def test_early_stopping_triggers_in_ann(self, cfg, synthetic_ann_loaders,
                                              device, checkpoint_dir):
         """With patience=1, ANN training should stop after 2 epochs (1 non-improving)."""
         tight_cfg = get_config()
@@ -337,7 +360,7 @@ class TestEarlyStoppingIntegration:
         tight_cfg.train.early_stop_patience = 1    # stops after 1 non-improvement
         result = train_ann(
             tight_cfg, seed=99,
-            dataloaders=synthetic_loaders,
+            dataloaders=synthetic_ann_loaders,
             device=device,
             checkpoint_dir=checkpoint_dir,
             verbose=False,
@@ -361,3 +384,103 @@ class TestEarlyStoppingIntegration:
             verbose=False,
         )
         assert result.total_epochs < tight_cfg.train.snn_sg_epochs or result.early_stopped
+
+
+# ---------------------------------------------------------------------------
+# Protocol v2.0 guards
+# ---------------------------------------------------------------------------
+
+class TestTemporalInputGuards:
+
+    def test_snn_training_rejects_static_frames(self, cfg, synthetic_ann_loaders,
+                                                device, checkpoint_dir):
+        """Passing aggregate [B, 2, 34, 34] frames to SNN training must fail
+        loudly instead of silently repeating them over time (v1.0 behaviour)."""
+        with pytest.raises(ValueError, match="temporal event sequence"):
+            train_snn_sg(cfg, seed=5, dataloaders=synthetic_ann_loaders,
+                         device=device, checkpoint_dir=checkpoint_dir, verbose=False)
+
+    def test_snn_eval_at_other_T_is_blocked(self, cfg, synthetic_loaders, device):
+        """A 24-bin loader cannot be evaluated at T=12: re-binned loaders are
+        required (decision D-A, make_eval_loaders_by_T)."""
+        from src.trainer import evaluate
+        snn = SNN()
+        with pytest.raises(ValueError, match="bins"):
+            evaluate(snn, synthetic_loaders['val'], torch.nn.CrossEntropyLoss(),
+                     device, is_snn=True, T=12)
+
+    def test_hybrid_records_conversion_info_and_fidelity(self, cfg, synthetic_loaders,
+                                                         synthetic_ann_loaders, device, checkpoint_dir):
+        res = train_snn_hybrid(cfg, seed=7, snn_dataloaders=synthetic_loaders,
+                               ann_dataloaders=synthetic_ann_loaders, device=device,
+                               checkpoint_dir=checkpoint_dir, verbose=False)
+        assert res.conversion_info['input_map'] == cfg.train.conversion_input_map
+        assert {'ann_acc', 'snn_acc', 'agreement', 'passed'} <= set(res.conversion_fidelity)
+        ck = torch.load(res.ft_result.checkpoint_path, map_location='cpu', weights_only=False)
+        assert 'conversion_fidelity' in ck and 'conversion_info' in ck
+
+    def test_hybrid_enforced_gate_refuses_fine_tuning(self, cfg, synthetic_loaders,
+                                                      synthetic_ann_loaders, device, checkpoint_dir):
+        from src.conversion import ConversionGateError
+        strict = copy.deepcopy(cfg)
+        strict.train.conversion_gate = 'enforce'
+        strict.train.gate_min_agreement = 1.01          # impossible -> must fail
+        with pytest.raises(ConversionGateError):
+            train_snn_hybrid(strict, seed=8, snn_dataloaders=synthetic_loaders,
+                             ann_dataloaders=synthetic_ann_loaders, device=device,
+                             checkpoint_dir=checkpoint_dir, verbose=False)
+
+    def test_sg_init_calibration_recorded_and_no_silent_layer(self, cfg, synthetic_loaders,
+                                                              device, checkpoint_dir):
+        res = train_snn_sg(cfg, seed=9, dataloaders=synthetic_loaders, device=device,
+                           checkpoint_dir=checkpoint_dir, verbose=False)
+        rep = res.extra['init_calibration']
+        assert set(rep) == {'lif1', 'lif2', 'lif3'}
+        for v in rep.values():
+            assert v['rate_after'] == pytest.approx(cfg.snn.init_target_rate, rel=0.15)
+
+
+# ---------------------------------------------------------------------------
+# Decision D-E: training budget in sample-time-steps
+# ---------------------------------------------------------------------------
+
+class TestSampleTimestepBudget:
+
+    def test_ann_counts_one_step_per_sample(self, cfg, synthetic_ann_loaders, device, checkpoint_dir):
+        res = train_ann(cfg, seed=11, dataloaders=synthetic_ann_loaders, device=device,
+                        checkpoint_dir=checkpoint_dir, verbose=False)
+        n = len(synthetic_ann_loaders['train'].dataset)
+        assert res.train_sample_timesteps == res.total_epochs * n * 1
+
+    def test_sg_counts_t_train_steps_per_sample(self, cfg, synthetic_loaders, device, checkpoint_dir):
+        res = train_snn_sg(cfg, seed=12, dataloaders=synthetic_loaders, device=device,
+                           checkpoint_dir=checkpoint_dir, verbose=False)
+        n = len(synthetic_loaders['train'].dataset)
+        assert res.train_sample_timesteps == res.total_epochs * n * cfg.snn.t_train
+        assert res.extra['init_forward_sample_timesteps'] > 0     # reported separately
+
+    def test_hybrid_budget_is_ann_plus_finetune(self, cfg, synthetic_loaders, synthetic_ann_loaders,
+                                                device, checkpoint_dir):
+        res = train_snn_hybrid(cfg, seed=13, snn_dataloaders=synthetic_loaders,
+                               ann_dataloaders=synthetic_ann_loaders, device=device,
+                               checkpoint_dir=checkpoint_dir, verbose=False)
+        n = len(synthetic_loaders['train'].dataset)
+        assert res.ann_result.train_sample_timesteps == res.ann_result.total_epochs * n
+        assert res.ft_result.train_sample_timesteps == res.ft_result.total_epochs * n * cfg.snn.t_train
+        assert res.train_sample_timesteps == (res.ann_result.train_sample_timesteps
+                                              + res.ft_result.train_sample_timesteps)
+        assert res.conversion_info['refine_forward_sample_timesteps'] > 0
+
+
+def test_hybrid_staged_gate_refuses_when_sanity_fails(cfg, synthetic_loaders, synthetic_ann_loaders,
+                                                     device, checkpoint_dir):
+    from src.conversion import ConversionGateError
+    c = copy.deepcopy(cfg)
+    c.train.conversion_gate = 'staged'
+    c.train.gate_min_agreement = 1.01      # strict impossible
+    c.train.gate_sanity_fraction = 1.01    # sanity impossible
+    with pytest.raises(ConversionGateError) as e:
+        train_snn_hybrid(c, seed=14, snn_dataloaders=synthetic_loaders,
+                         ann_dataloaders=synthetic_ann_loaders, device=device,
+                         checkpoint_dir=checkpoint_dir, verbose=False)
+    assert e.value.report.gate_outcome == 'fail'

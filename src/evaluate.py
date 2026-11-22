@@ -27,12 +27,16 @@ Note on threshold calibration for SNN-FT checkpoints:
   the evaluated model uses exactly the thresholds set during conversion —
   not the default v_threshold=1.0.
 
-Note on evaluation at T ≠ T_train:
-  All T values in t_eval_grid are passed to the same evaluate() function.
-  At T < T_train the model has fewer integration steps; at T > T_train it
-  has more. Both are valid inputs to the SNN (no architecture change).
-  The pilot must verify that accuracy varies monotonically or near-
-  monotonically with T; non-monotone behaviour would be a red flag.
+Note on evaluation at T ≠ T_train (decision D-A):
+  For each T in t_eval_grid the SAME 315-ms window of the SAME test recordings
+  is re-binned into T bins and scaled by T / T_train (per-step input rate kept
+  equal to training). Pass {T: loader} from
+  src/data/nmnist.py::make_eval_loaders_by_T. A single loader can only be
+  evaluated at its own sequence length (evaluate() raises otherwise).
+
+Note on SNN-FT checkpoints (decision D-B): conversion is encoded in the
+weights (thresholds stay 1.0); 'calibrated_thresholds' are still restored for
+backward compatibility.
 """
 
 from __future__ import annotations
@@ -127,7 +131,8 @@ def evaluate_ann_from_checkpoint(
     Args:
         checkpoint_path: Path to a .pt checkpoint saved by train_ann().
         cfg:             Experiment config (for architecture dimensions).
-        test_loader:     Test set DataLoader.
+        test_loaders_by_T: {T: DataLoader} of re-binned test sequences
+                         (make_eval_loaders_by_T(cfg, "test")).
         device:          Evaluation device.
 
     Returns:
@@ -152,7 +157,7 @@ def evaluate_ann_from_checkpoint(
 def evaluate_snn_grid_from_checkpoint(
     checkpoint_path: Path,
     cfg: Config,
-    test_loader: DataLoader,
+    test_loaders_by_T: dict,
     device: torch.device,
     t_eval_grid: Optional[list] = None,
 ) -> dict:
@@ -168,7 +173,9 @@ def evaluate_snn_grid_from_checkpoint(
         checkpoint_path: Path to a .pt checkpoint saved by train_snn_sg()
                          or train_snn_hybrid().
         cfg:             Experiment config.
-        test_loader:     Test set DataLoader.
+        test_loader:     Test set DataLoader (representation="snn"). Its
+                         sequence length must equal every T evaluated; with
+                         a single 16-bin loader only T=16 is valid (issue A).
         device:          Evaluation device.
         t_eval_grid:     List of T values to evaluate at.
                          Defaults to cfg.snn.t_eval_grid = [2, 4, 8, 16, 32].
@@ -199,9 +206,12 @@ def evaluate_snn_grid_from_checkpoint(
     criterion = nn.CrossEntropyLoss()
     results: dict[int, tuple[float, float]] = {}
 
+    missing = [T for T in t_eval_grid if T not in test_loaders_by_T]
+    if missing:
+        raise KeyError(f"no re-binned loader for T={missing}")
     for T in sorted(t_eval_grid):
         loss, acc = evaluate(
-            model, test_loader, criterion, device, is_snn=True, T=T,
+            model, test_loaders_by_T[T], criterion, device, is_snn=True, T=T,
         )
         results[T] = (loss, acc)
 
@@ -278,7 +288,7 @@ def pilot_checks(
       2. ANN achieves reasonable accuracy (> 0.8 on test)
       3. At least one SNN qualifies at some T
       4. Accuracy varies with T (T_eval grid is discriminative)
-      5. SNN at T=T_train is close to ANN (< 0.10 degradation)
+      5. SNN at T=T_train is close to ANN (< 10 pp = 0.10 accuracy degradation)
     """
     checks = []
 
@@ -338,7 +348,7 @@ def pilot_checks(
     if sg_at_T_train is not None:
         deg = ann_test_acc - sg_at_T_train
         checks.append((
-            f"SNN-SG degradation at T={t_train} < 0.10 pp",
+            f"SNN-SG degradation at T={t_train} < 10 pp",
             deg < 0.10,
             f"ANN={ann_test_acc:.4f}, SNN-SG@T{t_train}={sg_at_T_train:.4f}, "
             f"degradation={deg:.4f}"
@@ -346,7 +356,7 @@ def pilot_checks(
     if ft_at_T_train is not None:
         deg = ann_test_acc - ft_at_T_train
         checks.append((
-            f"SNN-FT degradation at T={t_train} < 0.10 pp",
+            f"SNN-FT degradation at T={t_train} < 10 pp",
             deg < 0.10,
             f"ANN={ann_test_acc:.4f}, SNN-FT@T{t_train}={ft_at_T_train:.4f}, "
             f"degradation={deg:.4f}"

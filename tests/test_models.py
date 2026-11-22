@@ -12,7 +12,9 @@ These tests verify:
   - SNN forward pass produces correct output shape [B, 10]
   - SNN output is in a reasonable range (rate-coded logits)
   - SNN reset() clears membrane state (re-running same input gives same output)
-  - SNN mean-over-T output is independent of T scaling
+  - SNN processes genuinely temporal input: bins differ, order matters,
+    state persists within a sequence and is reset between batches
+  - SNN backward pass, finite gradients and one optimizer update
   - ANN and SNN have matching Conv/Linear weight shapes
     (prerequisite for weight transfer during conversion)
   - Parameter counts match the expected values
@@ -81,10 +83,16 @@ def random_frame(batch=B) -> torch.Tensor:
     """Random float32 tensor in [0, 1] simulating a normalised event frame."""
     return torch.rand(batch, C, H, W)
 
-def random_seq(T: int, batch=B) -> torch.Tensor:
-    """Same frame repeated T times: [T, B, C, H, W]."""
-    frame = random_frame(batch)
-    return frame.unsqueeze(0).expand(T, -1, -1, -1, -1).clone()
+def random_seq(T: int, batch=B, seed: int = 0) -> torch.Tensor:
+    """Synthetic temporal event-count sequence [T, B, C, H, W].
+
+    Each time-step is an independent Poisson draw whose rate varies over time,
+    so consecutive bins differ (no static-frame repetition, protocol v2.0).
+    """
+    g = torch.Generator().manual_seed(seed)
+    profile = 0.2 + torch.rand(T, 1, 1, 1, 1, generator=g)          # time-varying rate
+    rate = profile * torch.rand(1, batch, C, H, W, generator=g)
+    return torch.poisson(rate.expand(T, batch, C, H, W).contiguous(), generator=g)
 
 
 # ===========================================================================
@@ -216,7 +224,7 @@ class TestSNN:
             f"T={T}: expected [{B}, 10], got {tuple(out.shape)}"
         )
 
-    @pytest.mark.parametrize("T", [2, 4, 8, 16, 32])
+    @pytest.mark.parametrize("T", [3, 6, 12, 24, 48])
     def test_output_shape_eval_grid(self, snn, T):
         """SNN must accept all T values in the evaluation grid."""
         functional.reset_net(snn)
@@ -378,3 +386,131 @@ class TestWeightCompatibility:
                 snn_layers[name].weight.data,
                 ann_layers[name].weight.data,
             ), f"Weight copy failed for layer '{name}'"
+
+
+# ===========================================================================
+# SNN on genuine temporal input (protocol v2.0)
+# ===========================================================================
+
+# Mechanism tests use v_threshold=0.2: with the default threshold (1.0) and
+# default PyTorch initialisation, LIF2/LIF3 are silent at random init (measured:
+# firing rate 0.0 even for strong input), so the output would equal the FC2
+# bias and state/temporal effects would be unobservable. This is a property of
+# the untrained network, reported by scripts/test_event_pipeline.py; it is not
+# a change to the experimental configuration.
+MECHANISM_TEST_THRESHOLD = 0.2
+
+
+def _fresh_snn(cfg, seed: int = 0, v_threshold: float = MECHANISM_TEST_THRESHOLD) -> SNN:
+    torch.manual_seed(seed)
+    return SNN(
+        in_channels=cfg.network.in_channels, conv1_out=cfg.network.conv1_out,
+        conv2_out=cfg.network.conv2_out, fc1_out=cfg.network.fc1_out,
+        n_classes=cfg.network.n_classes, tau=cfg.snn.tau,
+        v_threshold=v_threshold,
+    )
+
+
+def _strong_seq(T: int = 16, batch: int = B, seed: int = 0) -> torch.Tensor:
+    """Temporal sequence strong enough to make random-init LIF layers spike."""
+    return random_seq(T, batch, seed) * 4.0
+
+
+class TestSNNTemporal:
+
+    def test_synthetic_sequence_is_temporal(self):
+        x = random_seq(16)
+        assert not torch.equal(x[0], x[1]), "helper must not repeat a static frame"
+
+    def test_rejects_static_4d_input(self, cfg):
+        snn = _fresh_snn(cfg)
+        with pytest.raises(ValueError):
+            snn(torch.rand(B, C, H, W))
+
+    def test_temporal_order_matters(self, cfg):
+        """Reversing the bin order must change the output: the SNN is not a
+        permutation-invariant function of the bins (it has membrane memory)."""
+        snn = _fresh_snn(cfg).eval()
+        x = _strong_seq()
+        with torch.no_grad():
+            functional.reset_net(snn); fwd = snn(x)
+            functional.reset_net(snn); rev = snn(torch.flip(x, dims=[0]))
+        assert not torch.allclose(fwd, rev, atol=1e-6)
+
+    def test_state_carries_across_bins_within_sequence(self, cfg):
+        """Multi-step output must differ from simulating each bin from a reset
+        state, proving the membrane state persists between bins."""
+        snn = _fresh_snn(cfg).eval()
+        x = _strong_seq()
+        with torch.no_grad():
+            functional.reset_net(snn)
+            joint = snn(x)
+            per_bin = []
+            for t in range(x.shape[0]):
+                functional.reset_net(snn)
+                per_bin.append(snn(x[t:t + 1]))
+            independent = torch.stack(per_bin).mean(0)
+        assert not torch.allclose(joint, independent, atol=1e-6)
+
+    def test_no_state_leak_between_batches(self, cfg):
+        """With reset_net between batches, batch 2's output must equal the
+        output of a fresh network on batch 2 alone."""
+        snn = _fresh_snn(cfg).eval()
+        x1, x2 = _strong_seq(seed=1), _strong_seq(seed=2)
+        with torch.no_grad():
+            functional.reset_net(snn); snn(x1)
+            functional.reset_net(snn); after = snn(x2)
+            fresh = _fresh_snn(cfg).eval()
+            functional.reset_net(fresh); ref = fresh(x2)
+        assert torch.allclose(after, ref, atol=1e-6)
+
+    def test_membrane_zero_after_reset(self, cfg):
+        snn = _fresh_snn(cfg).eval()
+        with torch.no_grad():
+            functional.reset_net(snn); snn(_strong_seq())
+        functional.reset_net(snn)
+        for lif in (snn.features[1], snn.features[4], snn.classifier[2]):
+            v = lif.v
+            assert (float(v) if not isinstance(v, torch.Tensor) else float(v.abs().max())) == 0.0
+
+    def test_all_lif_layers_spike_in_mechanism_setup(self, cfg):
+        snn = _fresh_snn(cfg).eval()
+        h = _strong_seq()
+        rates = []
+        with torch.no_grad():
+            functional.reset_net(snn)
+            for m in list(snn.features) + list(snn.classifier):
+                h = m(h)
+                if m in (snn.features[1], snn.features[4], snn.classifier[2]):
+                    rates.append(float(h.mean()))
+        assert all(r > 0 for r in rates), rates
+
+    def test_backward_with_default_threshold_is_finite(self, cfg):
+        """Default config (theta=1.0): gradients must still be finite."""
+        snn = _fresh_snn(cfg, v_threshold=cfg.snn.v_threshold).train()
+        functional.reset_net(snn)
+        loss = nn.functional.cross_entropy(snn(_strong_seq()), torch.arange(B) % 10)
+        loss.backward()
+        assert torch.isfinite(loss)
+        assert all(p.grad is None or torch.isfinite(p.grad).all() for p in snn.parameters())
+
+    def test_backward_finite_grads_and_update(self, cfg):
+        snn = _fresh_snn(cfg).train()
+        opt = torch.optim.Adam(snn.parameters(), lr=1e-3)
+        x = _strong_seq()
+        y = torch.arange(B) % cfg.network.n_classes
+        before = [p.detach().clone() for p in snn.parameters()]
+        functional.reset_net(snn)
+        logits = snn(x)
+        assert logits.shape == (B, cfg.network.n_classes)
+        assert torch.isfinite(logits).all()
+        loss = nn.functional.cross_entropy(logits, y)
+        assert torch.isfinite(loss)
+        opt.zero_grad(); loss.backward()
+        grads = [p.grad for p in snn.parameters()]
+        assert all(g is not None and torch.isfinite(g).all() for g in grads)
+        # Surrogate gradient must reach the first conv layer through 3 LIF layers.
+        assert snn.features[0].weight.grad.abs().sum() > 0
+        opt.step()
+        changed = [not torch.equal(b, p) for b, p in zip(before, snn.parameters())]
+        assert all(changed), "every parameter tensor should change after one Adam step"

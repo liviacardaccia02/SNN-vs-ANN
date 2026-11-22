@@ -25,6 +25,7 @@ Sources that CANNOT be fully controlled:
 from __future__ import annotations
 import os
 import random
+from typing import Optional
 import numpy as np
 import torch
 
@@ -56,16 +57,36 @@ def set_all_seeds(seed: int, force_deterministic: bool = False) -> None:
         torch.backends.cudnn.benchmark = True
 
 
+def _seed_worker(worker_id: int, base_seed: int) -> None:
+    worker_seed = base_seed + worker_id
+    random.seed(worker_seed)
+    np.random.seed(worker_seed)
+
+
 def get_worker_init_fn(base_seed: int):
     """
     Returns a DataLoader worker_init_fn that seeds each worker's Python and
     NumPy RNGs independently, derived from the base experiment seed.
 
+    Implemented with functools.partial of a module-level function so it is
+    picklable under the 'spawn' / 'forkserver' start methods (macOS, Python
+    3.14+ on Linux); a nested closure fails there.
+
     Usage:
         DataLoader(..., worker_init_fn=get_worker_init_fn(seed))
     """
-    def _worker_init_fn(worker_id: int) -> None:
-        worker_seed = base_seed + worker_id
-        random.seed(worker_seed)
-        np.random.seed(worker_seed)
-    return _worker_init_fn
+    import functools
+    return functools.partial(_seed_worker, base_seed=base_seed)
+
+
+def make_run_id(prefix: str, seed: Optional[int] = None) -> str:
+    """
+    Unique, sortable run identifier: <prefix>[_s<seed>]_<UTC timestamp>_<8 hex>.
+
+    The random suffix comes from os.urandom, so it is unique even when the
+    experiment RNGs have been seeded identically.
+    """
+    import datetime
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    seed_part = f"_s{seed:02d}" if seed is not None else ""
+    return f"{prefix}{seed_part}_{stamp}_{os.urandom(4).hex()}"
