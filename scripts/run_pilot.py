@@ -13,7 +13,8 @@ What this script does:
   2. Runs Method B: ANN pre-training → conversion → SNN fine-tuning.
   3. Evaluates the ANN on the test set → ANN test accuracy → threshold_s.
   4. Runs Method A: SNN direct surrogate-gradient training from scratch.
-  5. Evaluates both SNNs at each T ∈ {2, 4, 8, 16, 32} on the test set.
+  5. Evaluates both SNNs at each T ∈ {3, 6, 12, 24, 48} on the test set,
+     re-binning the same 315-ms window into T bins (decision D-A).
   6. Prints a structured summary and runs pilot sanity checks.
   7. Saves a machine-readable JSON result file.
 
@@ -27,7 +28,7 @@ Pilot checks (printed after evaluation):
   [✓] ANN baseline is reasonable (> 0.80)
   [✓] At least one T qualifies for each method
   [✓] T_eval grid is discriminative (accuracy varies across T)
-  [✓] Degradation at T=T_train is < 0.10 pp
+  [✓] Degradation at T=T_train is < 10 pp (0.10 absolute accuracy)
 
 FLAGS FOR SCIENTIFIC TUTOR:
   - All design decisions are read from src/config.py (protocol v1.0).
@@ -36,7 +37,11 @@ FLAGS FOR SCIENTIFIC TUTOR:
     training and validation-based model selection is complete).
   - wall_time_method_b = ANN pre-training + SNN fine-tuning (not comparable
     directly to wall_time_method_a, which uses no ANN pre-training).
-  - T_train=16 during training; T_eval grid = {2,4,8,16,32} at inference.
+  - T_train=24 during training; T_eval grid = {3,6,12,24,48} at inference.
+  - Method B uses the staged conversion gate (decision D-B): the strict
+    fidelity criteria are checked and recorded on validation data; if they
+    fail, fine-tuning continues only if the converted SNN keeps at least half
+    of the ANN's above-chance accuracy; otherwise ConversionGateError.
 """
 
 from __future__ import annotations
@@ -61,7 +66,7 @@ if str(_REPO_ROOT) not in sys.path:
 import torch
 
 from src.config import get_config
-from src.data.nmnist import make_dataloaders
+from src.data.nmnist import make_dataloaders, make_eval_loaders_by_T
 from src.trainer import get_hardware_info
 from src.train_snn import train_snn_sg, train_snn_hybrid
 from src.evaluate import (
@@ -98,6 +103,17 @@ def parse_args():
                    help='Suppress per-epoch training output')
     p.add_argument('--smoke-test',  action='store_true',
                    help='Run on a tiny subset of data (256 samples) for quick pipeline verification')
+    p.add_argument('--t-train',     type=int,   default=None,
+                   help='Train both SNNs at this T (sets n_time_bins = t_train). Protocol P2 '
+                        '("train at each T") = one run per T in the grid. Default: config (24).')
+    p.add_argument('--batch-size',  type=int,   default=None,
+                   help='Override all training batch sizes (memory mitigation, research plan Risk 2; '
+                        'record any use of it)')
+    p.add_argument('--gate-mode',   choices=['staged', 'enforce', 'report'], default=None,
+                   help="Override cfg.train.conversion_gate (default 'staged', decision D-B). "
+                        "'report' never blocks; use it only for diagnosis and record it.")
+    p.add_argument('--no-sensitivity', action='store_true',
+                   help='Skip the rebin_raw / prefix evaluation variants (primary rebin_scaled only)')
     return p.parse_args()
 
 
@@ -178,9 +194,19 @@ def main():
     if args.sg_epochs   is not None: cfg.train.snn_sg_epochs = args.sg_epochs
     if args.ft_epochs   is not None: cfg.train.snn_ft_epochs = args.ft_epochs
     if args.data_root   is not None: cfg.data.data_root      = args.data_root
+    if args.gate_mode   is not None:
+        cfg.train.conversion_gate = args.gate_mode
+    if args.batch_size  is not None:
+        cfg.train.ann_batch_size = cfg.train.snn_sg_batch_size = cfg.train.snn_ft_batch_size = args.batch_size
+    if args.t_train     is not None:
+        cfg.snn.t_train = args.t_train
+        cfg.preprocess.n_time_bins = args.t_train
+    from src.config import validate_config
+    validate_config(cfg)
 
     seed = args.seed
     verbose = not args.quiet
+
 
     # ---- Device ----
     if args.no_gpu or not torch.cuda.is_available():
@@ -192,7 +218,7 @@ def main():
     if args.output_dir:
         out_dir = Path(args.output_dir)
     else:
-        out_dir = Path(cfg.experiment.output_dir) / f'pilot_seed{seed:02d}'
+        out_dir = Path(cfg.experiment.output_dir) / f'pilot_seed{seed:02d}_Ttrain{cfg.snn.t_train}'
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir = out_dir / 'checkpoints'
     ckpt_dir.mkdir(exist_ok=True)
@@ -214,19 +240,39 @@ def main():
 
     # ---- Data ----
     section('Loading N-MNIST')
-    dataloaders = make_dataloaders(cfg, experiment_seed=seed)
+    # Both representations derive from the same recordings and the same split.
+    dataloaders = make_dataloaders(cfg, experiment_seed=seed, representation='snn')
+    ann_dataloaders = make_dataloaders(cfg, experiment_seed=seed, representation='ann')
+    test_subset = None
     if args.smoke_test:
+        import numpy as np
         from torch.utils.data import Subset, DataLoader
-        print('  [SMOKE TEST MODE: using 256 samples per split for quick CPU run]')
+        print('  [SMOKE TEST MODE: 256 random samples per split for quick CPU run]')
         cfg.train.calib_batches = 1
-        dataloaders = {
-            split: DataLoader(
-                Subset(dl.dataset, list(range(min(256, len(dl.dataset))))),
-                batch_size=min(64, cfg.train.ann_batch_size),
-                shuffle=(split == 'train'),
-            )
-            for split, dl in dataloaders.items()
-        }
+        # Smoke mode trains for ~1 epoch on 256 samples; the ANN is far from
+        # converged, so the gate is recorded but not enforced here.
+        cfg.train.conversion_gate = 'report'
+
+        def _shrink(loaders: dict) -> dict:
+            out = {}
+            for split, dl in loaders.items():
+                # Random (seeded) subset: N-MNIST files are ordered by class, so
+                # range(256) would contain a single class (v1.0 bug).
+                rng = np.random.default_rng(1234)
+                idx = rng.choice(len(dl.dataset), min(256, len(dl.dataset)), replace=False)
+                if split == 'test':
+                    nonlocal_test[0] = sorted(idx.tolist())
+                out[split] = DataLoader(
+                    Subset(dl.dataset, sorted(idx.tolist())),
+                    batch_size=min(64, cfg.train.ann_batch_size),
+                    shuffle=(split == 'train'),
+                    generator=torch.Generator().manual_seed(seed),
+                )
+            return out
+        nonlocal_test = [None]
+        dataloaders = _shrink(dataloaders)
+        ann_dataloaders = _shrink(ann_dataloaders)
+        test_subset = nonlocal_test[0]
     n_train = len(dataloaders['train'].dataset)
     n_val   = len(dataloaders['val'].dataset)
     n_test  = len(dataloaders['test'].dataset)
@@ -239,9 +285,18 @@ def main():
     print(f'  ANN pre-train ({cfg.train.ann_epochs} epochs max) -> '
           f'convert -> SNN fine-tune ({cfg.train.snn_ft_epochs} epochs max)')
 
+    def _reset_peak() -> None:
+        if device.type == 'cuda':
+            torch.cuda.reset_peak_memory_stats(device)
+
+    def _peak_mb():
+        return round(torch.cuda.max_memory_allocated(device) / 2**20, 1) if device.type == 'cuda' else None
+
+    _reset_peak()
     hybrid_result = train_snn_hybrid(
-        cfg, seed, dataloaders, device, ckpt_dir, verbose=verbose,
+        cfg, seed, dataloaders, ann_dataloaders, device, ckpt_dir, verbose=verbose,
     )
+    peak_mb_b = _peak_mb()
     ann_res = hybrid_result.ann_result
     ft_res  = hybrid_result.ft_result
 
@@ -258,13 +313,23 @@ def main():
           + ', '.join(f'{k}={v:.4f}'
                       for k, v in hybrid_result.calibrated_thresholds.items()))
     print(f'  Method B total wall: {fmt_time(hybrid_result.total_wall_s)}')
+    print(f'  Method B training budget (D-E): {hybrid_result.train_sample_timesteps:,} sample-time-steps '
+          f'(ANN {ann_res.train_sample_timesteps:,} + FT {ft_res.train_sample_timesteps:,}); '
+          f'conversion forward-only: {hybrid_result.conversion_info.get("refine_forward_sample_timesteps", 0):,}')
+    fid = hybrid_result.conversion_fidelity
+    print(f'  Conversion gate ({cfg.train.conversion_gate}): {fid.get("gate_outcome", "?")} | '
+          f'strict {"PASS" if fid.get("passed") else "FAIL"}, '
+          f'sanity {"PASS" if fid.get("sanity_passed") else "FAIL"} (>= {fid.get("sanity_threshold", float("nan")):.4f}) | '
+          f'SNN {fid.get("snn_acc", float("nan")):.4f} vs ANN {fid.get("ann_acc", float("nan")):.4f}, '
+          f'agreement {fid.get("agreement", float("nan")):.4f}')
+    print(f'  Peak GPU memory (Method B): {peak_mb_b} MB')
 
     # =========================================================
     # Phase 2 -- Evaluate ANN on test set -> threshold_s
     # =========================================================
     section('ANN test evaluation -> threshold_s')
     ann_test_loss, ann_test_acc = evaluate_ann_from_checkpoint(
-        ann_res.checkpoint_path, cfg, dataloaders['test'], device,
+        ann_res.checkpoint_path, cfg, ann_dataloaders['test'], device,
     )
     threshold_s = ann_test_acc - cfg.experiment.accuracy_margin
     print(f'  ANN test_acc = {ann_test_acc:.4f}   test_loss = {ann_test_loss:.4f}')
@@ -278,14 +343,19 @@ def main():
     print(f'  SG training from scratch ({cfg.train.snn_sg_epochs} epochs max, '
           f'T_train={cfg.snn.t_train})')
 
+    _reset_peak()
     sg_result = train_snn_sg(
         cfg, seed, dataloaders, device, ckpt_dir, verbose=verbose,
     )
+    peak_mb_a = _peak_mb()
     section('Method A summary')
     print(f'  SNN-SG -- best_val_acc={sg_result.best_val_acc:.4f} '
           f'at epoch {sg_result.best_epoch}/{sg_result.total_epochs} | '
           f'wall={fmt_time(sg_result.total_wall_s)} | '
           f'updates={sg_result.total_updates:,}')
+    print(f'  Method A training budget (D-E): {sg_result.train_sample_timesteps:,} sample-time-steps; '
+          f'init calibration forward-only: {sg_result.extra.get("init_forward_sample_timesteps", 0):,}')
+    print(f'  Peak GPU memory (Method A): {peak_mb_a} MB')
 
     # =========================================================
     # Phase 4 — Evaluate both SNNs on test grid
@@ -295,19 +365,43 @@ def main():
     print(f'  Threshold:   {threshold_s:.4f}')
 
     section('Evaluating SNN-SG at each T')
+    # Decision D-A: one re-binned loader per T over the same test recordings.
+    test_loaders_by_T = make_eval_loaders_by_T(
+        cfg, 'test', indices=test_subset,
+        batch_size=dataloaders['test'].batch_size,
+    )
     sg_accs_by_T = evaluate_snn_grid_from_checkpoint(
-        sg_result.checkpoint_path, cfg, dataloaders['test'], device,
+        sg_result.checkpoint_path, cfg, test_loaders_by_T, device,
     )
     sg_eval = compute_eval_result(seed, 'snn_sg', ann_test_acc, sg_accs_by_T, cfg)
 
     section('Evaluating SNN-FT at each T')
     ft_accs_by_T = evaluate_snn_grid_from_checkpoint(
-        ft_res.checkpoint_path, cfg, dataloaders['test'], device,
+        ft_res.checkpoint_path, cfg, test_loaders_by_T, device,
     )
     ft_eval = compute_eval_result(seed, 'snn_ft', ann_test_acc, ft_accs_by_T, cfg)
 
     section('Results table')
     print_eval_table(sg_eval, ft_eval, threshold_s)
+
+    # Sensitivity of the accuracy-vs-T curve to HOW the T-step input is formed
+    # (decision D-A). Primary outcome = rebin_scaled above; these are secondary.
+    sensitivity: dict = {}
+    if not args.no_sensitivity:
+        for variant in ('rebin_raw', 'prefix'):
+            section(f'Sensitivity: evaluation variant "{variant}"')
+            loaders_v = make_eval_loaders_by_T(
+                cfg, 'test', indices=test_subset,
+                batch_size=dataloaders['test'].batch_size, variant=variant,
+            )
+            res_v = {}
+            for name, ckpt in (('snn_sg', sg_result.checkpoint_path), ('snn_ft', ft_res.checkpoint_path)):
+                accs = evaluate_snn_grid_from_checkpoint(ckpt, cfg, loaders_v, device,
+                                                         t_eval_grid=sorted(loaders_v))
+                res_v[name] = compute_eval_result(seed, name, ann_test_acc, accs, cfg).to_dict()
+                print(f'  {name}: ' + ', '.join(f'T={T}: {acc:.4f}' for T, (_, acc) in sorted(accs.items()))
+                      + f'  | min qualifying T = {res_v[name]["min_qualifying_T"]}')
+            sensitivity[variant] = res_v
 
     # =========================================================
     # Pilot checks
@@ -368,6 +462,10 @@ def main():
                 'total_updates': sg_result.total_updates,
                 'total_wall_s':  round(sg_result.total_wall_s, 3),
                 'early_stopped': sg_result.early_stopped,
+                'train_sample_timesteps': sg_result.train_sample_timesteps,
+                'init_calibration': sg_result.extra.get('init_calibration'),
+                'init_forward_sample_timesteps': sg_result.extra.get('init_forward_sample_timesteps'),
+                'peak_gpu_mb': peak_mb_a,
             },
             'evaluation': sg_eval.to_dict(),
         },
@@ -394,6 +492,12 @@ def main():
                     for k, v in hybrid_result.calibrated_thresholds.items()
                 },
                 'total_wall_s': round(hybrid_result.total_wall_s, 3),
+                'train_sample_timesteps': hybrid_result.train_sample_timesteps,
+                'ann_sample_timesteps': ann_res.train_sample_timesteps,
+                'ft_sample_timesteps': ft_res.train_sample_timesteps,
+                'conversion_info': hybrid_result.conversion_info,
+                'conversion_fidelity': hybrid_result.conversion_fidelity,
+                'peak_gpu_mb': peak_mb_b,
             },
             'evaluation': ft_eval.to_dict(),
         },
@@ -401,6 +505,15 @@ def main():
             {'label': label, 'passed': passed, 'detail': detail}
             for label, passed, detail in checks
         ],
+        'protocol': {
+            't_train': cfg.snn.t_train,
+            't_eval_grid': cfg.snn.t_eval_grid,
+            'batch_sizes': {'ann': cfg.train.ann_batch_size, 'snn_sg': cfg.train.snn_sg_batch_size,
+                            'snn_ft': cfg.train.snn_ft_batch_size},
+            'primary_eval_variant': 'rebin_scaled',
+            'conversion_gate': cfg.train.conversion_gate,
+        },
+        'evaluation_sensitivity': sensitivity,
         'timing': {
             'pilot_total_wall_s': round(pilot_total, 3),
             'estimate_5seeds_wall_s': round(total_1 * n_seeds, 3),

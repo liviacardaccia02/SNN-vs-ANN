@@ -1,0 +1,7 @@
+train subset 2000, val subset 500 (validation split only), device cpu
+
+[F] direct-SG: default init vs D-F firing-rate init
+  default_init     : loss 2.307 -> 2.262, val acc [0.132] (110.5 s)
+  firing_rate_init : loss 2.265 -> 0.999, val acc [0.734] (109.0 s)
+
+report: results/conversion_init_check/report_F.json

@@ -1,0 +1,11 @@
+train subset 2000, val subset 500 (validation split only), device cpu
+
+[F-sweep] target rates [0.01, 0.02, 0.05, 0.1, 0.2], seeds [0, 1]; selection rule: highest mean validation accuracy, ties within 1 pp -> lower rate
+  rate  0.01: val acc per seed [0.746, 0.69] -> mean 0.7180
+  rate  0.02: val acc per seed [0.756, 0.692] -> mean 0.7240
+  rate  0.05: val acc per seed [0.776, 0.706] -> mean 0.7410
+  rate  0.10: val acc per seed [0.762, 0.702] -> mean 0.7320
+  rate  0.20: val acc per seed [0.692, 0.7] -> mean 0.6960
+  selected target rate: 0.05 (best mean 0.7410; rule: within 1 pp -> lowest rate)
+
+report: results/conversion_init_check/report_F_sweep.json

@@ -6,7 +6,8 @@ every ReLU is replaced by a LIF neuron, and every AvgPool2d is kept
 as-is (pooling is compatible with rate coding).
 
 Architecture (locked, protocol v1.0):
-    Input:  [T, B, 2, 34, 34]  — event frame repeated T times
+    Input:  [T, B, 2, 34, 34]  — T chronologically ordered event-count bins
+                                 (protocol v2.0; never a repeated static frame)
     Conv1:  Conv2d(2→32, k=3, pad=1)            → [T, B, 32, 34, 34]
     LIF1:   LIFNode (soft reset, ATan surrogate) → [T, B, 32, 34, 34]  (spike)
     Pool1:  AvgPool2d(2)                         → [T, B, 32, 17, 17]
@@ -21,9 +22,17 @@ Architecture (locked, protocol v1.0):
 
 Step mode: SpikingJelly multi-step ('m').
   The [T, B, ...] tensor is fed to the network as-is; SpikingJelly
-  iterates the recurrent membrane equation internally across T.
-  reset() must be called at the start of every forward pass to clear
-  membrane potentials from the previous sample.
+  iterates the recurrent membrane equation internally across T, in index
+  order t = 0, 1, ..., T-1, i.e. in chronological bin order. Membrane state
+  therefore carries over between event bins of the same recording.
+  functional.reset_net(model) must be called before every new batch so that
+  no state leaks between independent recordings/batches.
+
+LIF charge equation (SpikingJelly LIFNode, decay_input=True, v_reset=None):
+  H[t] = V[t-1] + (X[t] - V[t-1]) / tau        (tau = 2 -> H = (V + X) / 2)
+  Consequence: a constant input X < v_threshold never produces a spike, so
+  the LIF rate is NOT the linear/ReLU-like rate assumed by classic IF-based
+  ANN-to-SNN conversion (README issue B).
 
 Soft reset (v_reset=None):
   After a spike: v ← v − v_threshold   (residual potential retained)
@@ -138,9 +147,8 @@ class SNN(nn.Module):
     def forward(self, x_seq: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x_seq: Float tensor [T, B, C, H, W].
-                   Typically the same event frame repeated T times:
-                   x_seq = x.unsqueeze(0).expand(T, -1, -1, -1, -1)
+            x_seq: Float tensor [T, B, C, H, W] of temporal event bins
+                   (see src/trainer.py: to_time_major for DataLoader batches).
 
         Returns:
             Logits [B, n_classes] — mean firing rate over T steps.
@@ -153,6 +161,10 @@ class SNN(nn.Module):
             functional.reset_net(snn)
             logits = snn(x_seq)
         """
+        if x_seq.dim() != 5:
+            raise ValueError(
+                f"SNN expects [T, B, C, H, W] temporal input, got shape {tuple(x_seq.shape)}"
+            )
         out = self.features(x_seq)    # [T, B, conv2_out, 8, 8]
         out = self.classifier(out)    # [T, B, n_classes]
         return out.mean(dim=0)        # [B, n_classes]  — average over time

@@ -3,19 +3,26 @@ SNN training loops — Method A (direct surrogate-gradient) and Method B (hybrid
 
 Entry points:
     result = train_snn_sg(cfg, seed, dataloaders, device, checkpoint_dir)
-    result = train_snn_hybrid(cfg, seed, dataloaders, device, checkpoint_dir)
+    result = train_snn_hybrid(cfg, seed, snn_dataloaders, ann_dataloaders,
+                              device, checkpoint_dir)
 
 Method A — Direct SG training:
   The SNN is trained from random initialisation using surrogate-gradient
-  backpropagation. Input frames are repeated T_train times to form a
-  constant-current spike train (direct coding). Loss is CrossEntropyLoss on
-  the time-averaged output logits.
+  backpropagation on temporal event sequences [T_train, B, 2, 34, 34]
+  (one simulation step per event bin; protocol v2.0). Loss is
+  CrossEntropyLoss on the time-averaged output logits.
 
 Method B — Hybrid (ANN pre-train + convert + SNN fine-tune):
-  1. Train ANN for up to ann_epochs with early stopping.
+  1. Train ANN for up to ann_epochs with early stopping on the aggregate
+     representation (sum over bins) of the SAME recordings and split.
   2. Copy Conv/Linear weights from best ANN checkpoint to SNN.
   3. Calibrate per-layer LIF thresholds using 99th-percentile activation
-     method on calib_batches batches of training data.
+     method on ANN (mean-over-bins) training data, then layer-wise weight
+     normalisation + LIF bias offset (src/conversion.py, decision D-B).
+  3b. Conversion-fidelity gate on the validation split (staged, D-B): the
+     strict criteria (accuracy within 2 pp, agreement >= 90 %) are checked and
+     recorded; if they fail, fine-tuning proceeds only if the converted SNN
+     keeps at least half of the ANN's above-chance accuracy.
   4. Fine-tune the converted SNN with surrogate gradients for up to
      snn_ft_epochs with early stopping.
   Total cost = ANN training cost + SNN fine-tuning cost (logged separately
@@ -23,14 +30,14 @@ Method B — Hybrid (ANN pre-train + convert + SNN fine-tune):
 
 Methodological flags:
   1. T_train / T_eval separation: all SNN training (both methods) uses
-     T=T_train=16. Evaluation at T_inf ∈ {2,4,8,16,32} is performed only
+     T=T_train=24. Evaluation at T_inf ∈ {3,6,12,24,48} is performed only
      in the final evaluation script. Validation loss/accuracy during training
      is computed at T=T_train for consistency.
-  2. Input encoding: direct coding — the same event frame is presented at
-     every time step. This is equivalent to a constant membrane current, so
-     firing rate ≈ min(input / threshold, 1) per step.  Changing T during
-     evaluation modifies total accumulated charge and may affect accuracy
-     in non-obvious ways; the pilot must verify this.
+  2. Input encoding (v2.0): the event bins of each recording are presented
+     in chronological order, one bin per time step. The v1.0 direct coding
+     (one accumulated frame repeated T times) has been removed. Evaluation
+     at other T re-bins the same 315-ms window into T bins (decision D-A,
+     src/data/nmnist.py::make_eval_loaders_by_T).
   3. Method B total cost: clock time includes ANN training + threshold
      calibration + SNN fine-tuning. Gradient updates are tracked separately
      per phase because ANN and SNN have the same parameter count but
@@ -55,7 +62,8 @@ from spikingjelly.activation_based import functional
 from src.config import Config
 from src.models.ann import ANN
 from src.models.snn import SNN
-from src.conversion import convert
+from src.conversion import ConversionGateError, convert, conversion_fidelity, gate_decision
+from src.init_calibration import calibrate_initial_firing, calibration_batches
 from src.train_ann import train_ann
 from src.trainer import (
     EarlyStopping, EpochLog, TrainingResult, HybridTrainingResult,
@@ -80,14 +88,15 @@ def train_snn_sg(
     """
     Train an SNN from scratch using surrogate-gradient backpropagation.
 
-    Input frames [B, 2, 34, 34] are expanded to [T_train, B, 2, 34, 34]
-    by repeating the frame along the time dimension (direct coding).
+    Batches of event sequences [B, T_train, 2, 34, 34] are transposed to
+    [T_train, B, 2, 34, 34]; bin k is simulated at step k.
     Loss = CrossEntropyLoss(time_averaged_logits, labels).
 
     Args:
         cfg:            Experiment config.
         seed:           Experiment seed (controls weight init and DataLoader).
-        dataloaders:    Dict with 'train', 'val', 'test' — test is never used.
+        dataloaders:    SNN loaders (representation="snn") 'train', 'val',
+                        'test' — test is never used.
         device:         Training device.
         checkpoint_dir: Directory for best-model checkpoint.
         verbose:        If True, print epoch-level progress.
@@ -115,6 +124,19 @@ def train_snn_sg(
         v_threshold=cfg.snn.v_threshold,
     ).to(device)
 
+    # ---- Data-driven initialisation (decision D-F) ----
+    init_report: dict = {}
+    if cfg.snn.init_calibration == "firing_rate":
+        seqs = calibration_batches(train_loader, cfg.snn.init_calib_batches, device)
+        cost: dict = {}
+        init_report = calibrate_initial_firing(model, seqs, cfg.snn.init_target_rate, counter=cost)
+        if verbose:
+            print(f"[SNN-SG seed={seed:02d}] init calibration: " + ", ".join(
+                f"{k}: g={v['gain']:.3g} rate {v['rate_before']:.4f}->{v['rate_after']:.4f}"
+                for k, v in init_report.items()))
+    elif cfg.snn.init_calibration != "none":
+        raise ValueError(f"unknown init_calibration '{cfg.snn.init_calibration}'")
+
     # ---- Optimizer ----
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -131,6 +153,7 @@ def train_snn_sg(
 
     epoch_logs: list[EpochLog] = []
     total_updates = 0
+    sample_timesteps = 0          # D-E: T_train time-steps per training sample
     best_val_acc = -1.0
     best_epoch = 0
     ckpt_path = checkpoint_dir / f"snn_sg_seed{seed:02d}_best.pt"
@@ -153,6 +176,7 @@ def train_snn_sg(
 
         epoch_elapsed = time.time() - epoch_start
         total_updates += n_updates
+        sample_timesteps += len(train_loader.dataset) * T
 
         log = EpochLog(
             epoch=epoch,
@@ -170,7 +194,8 @@ def train_snn_sg(
                 ckpt_path, model, optimizer, epoch, val_acc, val_loss, seed,
                 extra={'scheduler_state_dict': scheduler.state_dict(),
                        'method': 'snn_sg',
-                       't_train': T},
+                       't_train': T,
+                       'init_calibration': init_report},
             )
 
         if verbose:
@@ -203,10 +228,14 @@ def train_snn_sg(
         epoch_logs=epoch_logs,
         total_epochs=len(epoch_logs),
         total_updates=total_updates,
+        train_sample_timesteps=sample_timesteps,
         total_wall_s=total_wall_s,
         early_stopped=early_stopping.counter >= early_stopping.patience,
         hardware=hardware,
         checkpoint_path=ckpt_path,
+        extra={'init_calibration': init_report,
+               'init_forward_sample_timesteps': (cost.get('forward_sample_timesteps', 0)
+                                                 if cfg.snn.init_calibration == "firing_rate" else 0)},
     )
 
 
@@ -217,7 +246,8 @@ def train_snn_sg(
 def train_snn_hybrid(
     cfg: Config,
     seed: int,
-    dataloaders: dict,
+    snn_dataloaders: dict,
+    ann_dataloaders: dict,
     device: torch.device,
     checkpoint_dir: Path,
     verbose: bool = True,
@@ -246,7 +276,10 @@ def train_snn_hybrid(
     Args:
         cfg:            Experiment config.
         seed:           Experiment seed.
-        dataloaders:    Dict with 'train', 'val', 'test' — test never used.
+        snn_dataloaders: SNN loaders (representation="snn"), used for
+                         fine-tuning; 'test' never used.
+        ann_dataloaders: ANN loaders (representation="ann") over the SAME
+                         split, used for ANN pre-training and calibration.
         device:         Training device.
         checkpoint_dir: Directory for best-model checkpoints.
         verbose:        If True, print epoch-level progress.
@@ -256,8 +289,8 @@ def train_snn_hybrid(
     """
     checkpoint_dir = Path(checkpoint_dir)
     T = cfg.snn.t_train
-    train_loader = dataloaders['train']
-    val_loader   = dataloaders['val']
+    train_loader = snn_dataloaders['train']
+    val_loader   = snn_dataloaders['val']
 
     # =========================================================
     # Phase 1 — ANN training
@@ -268,7 +301,7 @@ def train_snn_hybrid(
         print(f"{'='*60}")
 
     ann_result = train_ann(
-        cfg, seed, dataloaders, device, checkpoint_dir, verbose=verbose,
+        cfg, seed, ann_dataloaders, device, checkpoint_dir, verbose=verbose,
     )
 
     # =========================================================
@@ -301,18 +334,43 @@ def train_snn_hybrid(
         v_threshold=cfg.snn.v_threshold,
     ).to(device)
 
-    # Use a calibration DataLoader — same training split, no shuffle needed
-    # (calibration is purely forward-pass, order does not matter)
-    snn_model, calibrated_thresholds = convert(
-        ann_model, snn_model, train_loader,
+    # Lambdas from ANN activations on TRAINING data (order irrelevant).
+    snn_model, conversion_info = convert(
+        ann_model, snn_model, ann_dataloaders['train'],
         percentile=cfg.train.calib_percentile,
         device=device,
         n_batches=cfg.train.calib_batches,
+        v_threshold=cfg.snn.v_threshold,
+        input_map=cfg.train.conversion_input_map,
+        T=cfg.snn.t_train,
+        snn_calibration_loader=snn_dataloaders['train'],
+        refine_batches=cfg.train.conversion_refine_batches,
     )
-
+    calibrated_thresholds = conversion_info['thresholds']
     if verbose:
-        print(f"[Hybrid seed={seed:02d}] Calibrated thresholds: "
-              + ", ".join(f"{k}={v:.4f}" for k, v in calibrated_thresholds.items()))
+        print(f"[Hybrid seed={seed:02d}] lambdas: "
+              + ", ".join(f"{k}={v:.4f}" for k, v in conversion_info['lambdas'].items()))
+
+    # ---- Conversion-fidelity gate on VALIDATION data (decision D-B) ----
+    fidelity = conversion_fidelity(
+        ann_model, snn_model, ann_dataloaders['val'], snn_dataloaders['val'],
+        conversion_info['lambdas'], device=device, n_batches=cfg.train.gate_batches,
+        max_acc_drop=cfg.train.gate_max_acc_drop, min_agreement=cfg.train.gate_min_agreement,
+        sanity_fraction=cfg.train.gate_sanity_fraction, n_classes=cfg.network.n_classes,
+    )
+    proceed = gate_decision(fidelity, cfg.train.conversion_gate)
+    if verbose:
+        print(f"[Hybrid seed={seed:02d}] conversion gate ({cfg.train.conversion_gate}): "
+              f"{fidelity.gate_outcome.upper()} | strict {'PASS' if fidelity.passed else 'FAIL'}, "
+              f"sanity {'PASS' if fidelity.sanity_passed else 'FAIL'} (>= {fidelity.sanity_threshold:.4f}) | "
+              f"ANN val={fidelity.ann_acc:.4f} SNN(T={fidelity.T}) val={fidelity.snn_acc:.4f} "
+              f"agreement={fidelity.agreement:.4f}"
+              + (f" | {'; '.join(fidelity.reasons)}" if fidelity.reasons else ""))
+    if not proceed:
+        raise ConversionGateError(
+            "Converted SNN fails the conversion gate on validation data "
+            f"(mode '{cfg.train.conversion_gate}'; {'; '.join(fidelity.reasons)}; "
+            f"sanity threshold {fidelity.sanity_threshold:.4f}). Hybrid fine-tuning refused.", fidelity)
 
     # =========================================================
     # Phase 3 — SNN fine-tuning
@@ -339,6 +397,7 @@ def train_snn_hybrid(
 
     ft_epoch_logs: list[EpochLog] = []
     ft_total_updates = 0
+    ft_sample_timesteps = 0
     ft_best_val_acc = -1.0
     ft_best_epoch = 0
     ft_ckpt_path = checkpoint_dir / f"snn_ft_seed{seed:02d}_best.pt"
@@ -362,6 +421,7 @@ def train_snn_hybrid(
 
         epoch_elapsed = time.time() - epoch_start
         ft_total_updates += n_updates
+        ft_sample_timesteps += len(train_loader.dataset) * T
 
         log = EpochLog(
             epoch=epoch,
@@ -383,6 +443,8 @@ def train_snn_hybrid(
                     'method':               'snn_ft',
                     't_train':              T,
                     'calibrated_thresholds': calibrated_thresholds,
+                    'conversion_info':       conversion_info,
+                    'conversion_fidelity':   fidelity.to_dict(),
                     'ann_checkpoint':        str(ann_result.checkpoint_path),
                 },
             )
@@ -417,6 +479,7 @@ def train_snn_hybrid(
         epoch_logs=ft_epoch_logs,
         total_epochs=len(ft_epoch_logs),
         total_updates=ft_total_updates,
+        train_sample_timesteps=ft_sample_timesteps,
         total_wall_s=ft_wall_s,
         early_stopped=early_stopping.counter >= early_stopping.patience,
         hardware=hardware,
@@ -429,4 +492,6 @@ def train_snn_hybrid(
         calibrated_thresholds=calibrated_thresholds,
         total_wall_s=ann_result.total_wall_s + ft_wall_s,
         seed=seed,
+        conversion_info=conversion_info,
+        conversion_fidelity=fidelity.to_dict(),
     )

@@ -1,7 +1,17 @@
-.bin
-.hdf5
-cache/
-data/
+# ---- Project data / artefacts (never commit) ----
+# Rules are anchored with a leading "/": the former unanchored "data/" rule
+# also ignored src/data/, so src/data/nmnist.py was never committed (v1.0 bug).
+*.bin
+*.hdf5
+*.zip
+/cache/
+/data/
+.venv/
+# Model checkpoints are large and reproducible from code + config
+*.pt
+*.pth
+/checkpoints/
+results/**/checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,0 +1,16 @@
+{
+  "fig1": {
+    "n_recordings": 1000,
+    "peak_events_per_ms": 16.106
+  },
+  "fig2": {
+    "index": 15927,
+    "label": 2,
+    "vmax_count": 5.0
+  },
+  "fig3": {
+    "c": 0.83,
+    "k": 1.36,
+    "rmse": 0.060927695087702065
+  }
+}

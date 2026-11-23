@@ -12,10 +12,11 @@ Provides:
 
 Design notes:
   - All functions are model-agnostic; is_snn=True switches the SNN-specific
-    path (functional.reset_net + time-step expansion of input).
-  - SNN input expansion: x_seq = x.unsqueeze(0).expand(T, …) uses a
-    memory-efficient view (no copy). .contiguous() is called before forwarding
-    to avoid potential view errors inside SpikingJelly's reshape operations.
+    path (functional.reset_net + batch-major -> time-major transpose).
+  - SNN input (protocol v2.0): the DataLoader yields genuine temporal event
+    sequences [B, T, C, H, W]; to_time_major() transposes them to SpikingJelly's
+    [T, B, C, H, W]. Static 4-D frames are REJECTED: the v1.0 practice of
+    repeating one accumulated frame T times discarded all event timing.
   - Gradient clipping is applied only to SNN training (surrogate gradients
     can explode; ATan is bounded but downstream gradients are not).
   - No in-place shuffle of data is performed; determinism relies on DataLoader
@@ -65,6 +66,13 @@ class TrainingResult:
     early_stopped: bool
     hardware: dict
     checkpoint_path: Optional[Path]  # path to saved best-model checkpoint
+    extra: dict = field(default_factory=dict)  # method-specific metadata (init calibration, ...)
+    train_sample_timesteps: int = 0
+    """Training compute in SAMPLE-TIME-STEPS (decision D-E): every training
+    sample processed with forward+backward counts once per simulated time-step
+    (ANN: 1 step per sample; SNN: T_train steps per sample), summed over all
+    epochs actually run. Forward-only costs (calibration, validation) are
+    reported separately, never added to this number."""
 
 
 @dataclass
@@ -83,6 +91,14 @@ class HybridTrainingResult:
     calibrated_thresholds: dict         # {lif_name: threshold_value}
     total_wall_s: float                 # ann + ft wall time (excludes calib time)
     seed: int
+    conversion_info: dict = field(default_factory=dict)      # lambdas, method
+    conversion_fidelity: dict = field(default_factory=dict)  # FidelityReport.to_dict()
+
+    @property
+    def train_sample_timesteps(self) -> int:
+        """Method B training budget (D-E): ANN pre-training + SNN fine-tuning.
+        Conversion is forward-only and reported in conversion_info."""
+        return self.ann_result.train_sample_timesteps + self.ft_result.train_sample_timesteps
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +189,37 @@ def get_hardware_info() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# SNN input handling
+# ---------------------------------------------------------------------------
+
+def to_time_major(x: torch.Tensor, T: Optional[int] = None) -> torch.Tensor:
+    """
+    Convert a batch of event sequences [B, T, C, H, W] to [T, B, C, H, W].
+
+    Args:
+        x: Batch from an SNN DataLoader (representation="snn").
+        T: Expected number of time-steps. If given and different from the
+           sequence length, raise: how to evaluate at T != number of event bins
+           is an unresolved methodological decision (README issue A), so this
+           function never truncates, pads, repeats or re-bins.
+
+    Raises:
+        ValueError: on 4-D (static frame) input or a T mismatch.
+    """
+    if x.dim() != 5:
+        raise ValueError(
+            f"SNN input must be a temporal event sequence [B, T, C, H, W]; got shape "
+            f"{tuple(x.shape)}. Static frames are not repeated over time (protocol v2.0)."
+        )
+    if T is not None and x.shape[1] != T:
+        raise ValueError(
+            f"Requested T={T} but the event sequence has {x.shape[1]} bins. Evaluation "
+            "at T != n_time_bins is undefined until issue A (README) is resolved."
+        )
+    return x.transpose(0, 1).contiguous()
+
+
+# ---------------------------------------------------------------------------
 # Evaluation loop
 # ---------------------------------------------------------------------------
 
@@ -192,8 +239,9 @@ def evaluate(
         loader:    DataLoader (validation or test set).
         criterion: Loss function (CrossEntropyLoss).
         device:    Evaluation device.
-        is_snn:    If True, applies reset + time-step expansion before forwarding.
-        T:         Number of simulation time-steps (SNN only).
+        is_snn:    If True, resets state and transposes [B,T,...] -> [T,B,...].
+        T:         Expected number of time-steps (SNN only); must equal the
+                   number of event bins in the batch.
 
     Returns:
         (avg_loss, accuracy) — loss averaged over all samples, accuracy in [0, 1].
@@ -211,7 +259,7 @@ def evaluate(
             x, y = x.to(device), y.to(device)
             if is_snn:
                 functional.reset_net(model)
-                x_seq = x.unsqueeze(0).expand(T, -1, -1, -1, -1).contiguous()
+                x_seq = to_time_major(x, T)
                 logits = model(x_seq)
             else:
                 logits = model(x)
@@ -246,8 +294,8 @@ def train_one_epoch(
         optimizer:     Optimizer (Adam).
         criterion:     Loss function (CrossEntropyLoss).
         device:        Training device.
-        is_snn:        If True, applies reset + time-step expansion.
-        T:             Simulation time-steps (SNN only; ignored for ANN).
+        is_snn:        If True, resets state and transposes [B,T,...] -> [T,B,...].
+        T:             Expected time-steps (SNN only; must equal sequence length).
         max_grad_norm: If not None, clip gradient L2-norm to this value.
                        Recommended for SNN training (e.g., 1.0).
 
@@ -269,7 +317,7 @@ def train_one_epoch(
 
         if is_snn:
             functional.reset_net(model)
-            x_seq = x.unsqueeze(0).expand(T, -1, -1, -1, -1).contiguous()
+            x_seq = to_time_major(x, T)
             logits = model(x_seq)
         else:
             logits = model(x)
