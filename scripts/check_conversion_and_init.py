@@ -163,7 +163,7 @@ def main() -> int:
         report["environment"] = get_hardware_info()
         report["wall_s"] = round(time.time() - t0, 1)
         (out_dir / "report_F_sweep.json").write_text(json.dumps(report, indent=2, default=str))
-        print(f"\nreport: {(out_dir / 'report_F_sweep.json').relative_to(PROJECT_ROOT)}")
+        print(f"\nreport: {(out_dir / 'report_F_sweep.json').resolve()}")
         return 0
 
     # ---------------- F: init comparison ----------------
@@ -189,7 +189,7 @@ def main() -> int:
         report["environment"] = get_hardware_info()
         report["wall_s"] = round(time.time() - t0, 1)
         (out_dir / "report_F.json").write_text(json.dumps(report, indent=2, default=str))
-        print(f"\nreport: {(out_dir / 'report_F.json').relative_to(PROJECT_ROOT)}")
+        print(f"\nreport: {(out_dir / 'report_F.json').resolve()}")
         return 0
     print("\n[B] ANN training on mean-over-bins input, conversion, fidelity gate")
     set_all_seeds(args.seed)
@@ -237,7 +237,7 @@ def main() -> int:
     report["wall_s"] = round(time.time() - t0, 1)
     name = "report_B.json" if args.skip_f else "report.json"
     (out_dir / name).write_text(json.dumps(report, indent=2, default=str))
-    print(f"\nreport: {(out_dir / name).relative_to(PROJECT_ROOT)}  ({report['wall_s']} s)")
+    print(f"\nreport: {(out_dir / name).resolve()}  ({report['wall_s']} s)")
     return 0
 
 

@@ -116,6 +116,23 @@ def copy_weights(ann: ANN, snn: SNN) -> None:
 # 2. Activation statistics
 # ---------------------------------------------------------------------------
 
+def exact_percentile(v: torch.Tensor, percentile: float) -> float:
+    """
+    Exact percentile of a 1-D tensor of any size, with linear interpolation
+    (identical to torch.quantile's default).
+
+    torch.quantile refuses inputs above 2**24 elements. Full-batch calibration
+    on N-MNIST produces ~47 M conv1 activations (128 x 10 batches x 32 x 34 x 34),
+    so NumPy is used instead. An earlier float32 linspace subsampling crashed
+    there: float32 cannot represent indices above 2**24 exactly.
+    """
+    import numpy as np
+    if v.numel() == 0:
+        raise ValueError("empty tensor")
+    a = v.detach().cpu().double().numpy() if v.dtype != torch.float64 else v.detach().cpu().numpy()
+    return float(np.percentile(a, percentile, method="linear"))
+
+
 def activation_percentiles(
     ann: ANN,
     loader: DataLoader,
@@ -147,10 +164,7 @@ def activation_percentiles(
         raise RuntimeError("calibration loader provided zero samples")
     out: dict[str, float] = {}
     for k, vals in acc.items():
-        v = torch.cat(vals)
-        if v.numel() > 16_000_000:          # torch.quantile size limit; subsample deterministically
-            v = v[torch.linspace(0, v.numel() - 1, 16_000_000).long()]
-        lam = float(v.max()) if percentile == 100.0 else float(torch.quantile(v, percentile / 100.0))
+        lam = exact_percentile(torch.cat(vals), percentile)
         if not lam > 0.0:
             raise RuntimeError(f"layer '{k}' has no positive activations (lambda={lam}); dead layer")
         out[k] = lam
@@ -445,8 +459,9 @@ def conversion_fidelity(
     rates: dict[str, torch.Tensor] = {}
     hooks = [m.register_forward_hook(lambda mod, i, o, n=n: rates.__setitem__(n, o.mean(0)))
              for n, m in lifs.items()]
-    xs = {k: [] for k in lifs}
-    ys = {k: [] for k in lifs}
+    # Streaming Pearson statistics (float64 running sums). Storing every
+    # per-neuron value would need ~3.5 GB for conv1 on the full validation set.
+    stats = {k: torch.zeros(6, dtype=torch.float64) for k in lifs}   # n, Sx, Sy, Sxx, Syy, Sxy
     n = correct_a = correct_s = agree = 0
     T = None
     try:
@@ -467,7 +482,11 @@ def conversion_fidelity(
                 agree += int((pa == ps).sum()); n += y.numel()
                 for lif, key in keymap.items():
                     tgt = (acts[key].clamp(min=0) / lambdas[key]).clamp(max=1.0)
-                    xs[lif].append(tgt.flatten().cpu()); ys[lif].append(rates[lif].flatten().cpu())
+                    a = tgt.flatten().double(); r = rates[lif].flatten().double()
+                    stats[lif] += torch.stack([
+                        torch.tensor(float(a.numel()), dtype=torch.float64, device=a.device),
+                        a.sum(), r.sum(), (a * a).sum(), (r * r).sum(), (a * r).sum(),
+                    ]).cpu()
     finally:
         for h in hooks:
             h.remove()
@@ -477,10 +496,12 @@ def conversion_fidelity(
 
     corr, mean_rate, mean_tgt = {}, {}, {}
     for lif in lifs:
-        a = torch.cat(xs[lif]); r = torch.cat(ys[lif])
-        mean_rate[lif] = float(r.mean()); mean_tgt[lif] = float(a.mean())
-        st = torch.stack([a, r])
-        corr[lif] = float(torch.corrcoef(st)[0, 1]) if a.std() > 0 and r.std() > 0 else float('nan')
+        m, sx, sy, sxx, syy, sxy = (float(v) for v in stats[lif])
+        mx, my = sx / m, sy / m
+        vx, vy = sxx / m - mx * mx, syy / m - my * my
+        cov = sxy / m - mx * my
+        mean_rate[lif] = my; mean_tgt[lif] = mx
+        corr[lif] = cov / (vx * vy) ** 0.5 if vx > 1e-12 and vy > 1e-12 else float('nan')
 
     ann_acc, snn_acc, agreement = correct_a / n, correct_s / n, agree / n
     reasons = []

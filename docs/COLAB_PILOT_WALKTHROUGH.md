@@ -15,6 +15,25 @@ decisions in step 7 below are made.
 Prerequisite: the branch `feat/event-based-temporal-pipeline` is pushed (see the
 commit/PR commands handed over with this document).
 
+**Ready-made notebook:** [`notebooks/02_colab_pilot.ipynb`](../notebooks/02_colab_pilot.ipynb)
+contains every step below as cells, plus helper cells that:
+- estimate the full-pilot time;
+- summarise `results.json`;
+- apply the P1/P2 rule.
+
+Open it in Colab via *File → Open notebook → GitHub*: paste the repository URL and
+choose the branch. Its clone cell pulls the latest commit when re-run and prints the
+commit hash, so you always know which code ran.
+
+**History.** The first Colab attempt (2026-11-23, commit `f344818`) crashed in two
+places, both fixed in the following commit:
+1. Conversion calibration: a float32 index overflow above 2²⁴ activations. The
+   percentile is now exact, computed with NumPy.
+2. The smoke test's final step, when `--out-dir` was on Drive (outside the repo).
+
+The gate's correlation diagnostics also now stream instead of holding about 3.5 GB in
+RAM.
+
 ---
 
 ## 1. Open Colab with a GPU

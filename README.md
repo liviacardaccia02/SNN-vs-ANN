@@ -89,6 +89,7 @@ python scripts/test_event_pipeline.py                       # pipeline smoke tes
 python scripts/check_conversion_and_init.py --skip-f        # conversion gate diagnostic (B)
 python scripts/check_conversion_and_init.py                 # + init comparison (F); slow on CPU
 python scripts/run_pilot.py --seed 0                        # pilot (GPU recommended)
+# Colab: open notebooks/02_colab_pilot.ipynb (see docs/COLAB_PILOT_WALKTHROUGH.md)
 ```
 
 ## Open items (need a team / mentor decision)

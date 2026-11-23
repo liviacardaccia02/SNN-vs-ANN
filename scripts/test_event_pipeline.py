@@ -53,6 +53,14 @@ from src.trainer import get_hardware_info, to_time_major  # noqa: E402
 from src.utils.reproducibility import make_run_id, set_all_seeds  # noqa: E402
 
 
+def display_path(p: Path) -> str:
+    """Path relative to the repo if it is inside it, else absolute (e.g. Google Drive)."""
+    try:
+        return str(Path(p).resolve().relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(Path(p).resolve())
+
+
 # ---------------------------------------------------------------------------
 # Check bookkeeping
 # ---------------------------------------------------------------------------
@@ -328,8 +336,8 @@ def main() -> int:
     viz_path = out_dir / "temporal_bins_sample.png"
     save_temporal_figure(sample0_frames, sample0_info, y0, os.path.relpath(ds_events.file_path(viz_idx), cfg.data.data_root),
                          int(ev0.size), viz_path)
-    checks.add("temporal visualisation saved", viz_path.exists(), str(viz_path.relative_to(PROJECT_ROOT)))
-    report["visualization"] = str(viz_path.relative_to(PROJECT_ROOT))
+    checks.add("temporal visualisation saved", viz_path.exists(), display_path(viz_path))
+    report["visualization"] = display_path(viz_path)
 
     # ------------------------------------------------------------------ 12-17
     section("12-17. SNN forward / loss / backward / optimizer step on temporal input")
@@ -452,7 +460,7 @@ def main() -> int:
     report["status"] = "PASS" if not checks.critical_failures else "FAIL"
     rpath = out_dir / "smoke_report.json"
     rpath.write_text(json.dumps(report, indent=2, default=str))
-    print(f"  report: {rpath.relative_to(PROJECT_ROOT)}")
+    print(f"  report: {display_path(rpath)}")
     print(f"\nSTATUS: {report['status']}  ({len(checks.items)} checks, "
           f"{len(checks.critical_failures)} critical failures, "
           f"{sum(1 for c in checks.items if not c['passed'] and not c['critical'])} warnings)")

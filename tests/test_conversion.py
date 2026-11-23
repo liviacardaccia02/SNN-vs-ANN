@@ -313,3 +313,39 @@ def test_gate_decision_rejects_unknown_mode():
     from src.conversion import gate_decision
     with pytest.raises(ValueError):
         gate_decision(_report(0.8), "lenient")
+
+
+# ---------------------------------------------------------------------------
+# Regression: full-scale sizes (Colab pilot crash, 2026-11-23)
+# ---------------------------------------------------------------------------
+
+def test_exact_percentile_matches_torch_quantile_small():
+    from src.conversion import exact_percentile
+    g = torch.Generator().manual_seed(0)
+    v = torch.rand(10_000, generator=g) ** 3
+    for p in (50.0, 99.0, 99.9, 100.0):
+        assert exact_percentile(v, p) == pytest.approx(float(torch.quantile(v.double(), p / 100)), rel=1e-9)
+
+
+def test_exact_percentile_above_torch_quantile_limit():
+    """47 349 760 = size that crashed the pilot (> 2**24, torch.quantile's limit)."""
+    from src.conversion import exact_percentile
+    n = 2**24 + 1001
+    v = torch.arange(n, dtype=torch.float32)
+    assert exact_percentile(v, 100.0) == float(n - 1)
+    assert exact_percentile(v, 50.0) == pytest.approx((n - 1) / 2, rel=1e-6)
+
+
+def test_streaming_correlation_equals_batch_correlation(separable):
+    """Fidelity correlations are now computed from running sums; they must
+    equal the direct computation."""
+    x, y = separable
+    ann = _trained_ann(x, y)
+    snn, info = convert(ann, make_snn(), ann_loader(x, y, 10), input_map="fitted")
+    rep = conversion_fidelity(ann, snn, ann_loader(x, y, 10), _seq_loader(x, y), info["lambdas"])
+    from src.conversion import _layer_rates_and_targets
+    r, u = _layer_rates_and_targets(ann, snn, [x], [x.unsqueeze(1).expand(-1, T, -1, -1, -1)],
+                                    info["lambdas"], 0)
+    direct = float(torch.corrcoef(torch.stack([u, r]))[0, 1])
+    assert rep.layer_rate_correlation["lif1"] == pytest.approx(direct, abs=1e-6)
+    assert rep.layer_mean_rate["lif1"] == pytest.approx(float(r.mean()), abs=1e-6)
