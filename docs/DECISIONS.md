@@ -293,3 +293,39 @@ interpretation · evidence. "Decided by team" = decided by Tytus Felbor
   display contrast and apparent-motion direction, so it is kept only as a recorded
   observation.
 - **Consequence:** naming only; both models see the same channel order.
+
+## D-H · Hardware-independent operation counts (SynOps / MACs)
+
+- **Decision:** every SNN evaluation also counts operations per test sample
+  (`src/opcount.py`, measured in the same pass as accuracy, saved as
+  `op_counts_by_T` in the pilot `results.json`):
+  - `synops_ac`: each spike × its fan-out (synapses it drives in the next
+    Conv/Linear layer). A binary spike needs only an addition (AC). Average
+    pooling is folded into the next weights; spikes dropped by pooling have
+    fan-out 0.
+  - `input_macs_event`: the first layer gets event *counts*, so it needs MACs;
+    one MAC per non-zero input element per synapse.
+  - ANN reference: MACs per sample = 6 608 384 (real synapses).
+  - Also reported: spikes and firing rate per layer, neuron updates (T × LIF
+    neurons), the dense-simulation equivalent (T × ANN MACs), and a derived
+    energy estimate (45 nm: MAC 4.6 pJ, AC 0.9 pJ; Horowitz, ISSCC 2014).
+- **Decided by:** team asked for an objective, hardware-independent cost
+  measure (2026-11-24); method chosen by the implementer following the SNN
+  literature convention.
+- **Why not wall-clock time or instruction counts:**
+  - Wall-clock time depends on the machine.
+  - Assembly instruction counts are not hardware-independent either: they
+    change with the instruction set (x86, ARM, GPU), compiler, SIMD width,
+    the cuDNN kernel chosen at run time, and framework overhead.
+  - Most importantly, a GPU simulates the SNN densely (every neuron, every
+    step), so both measure the simulator, not the network.
+  - SynOps/MACs depend only on the architecture and the activity on the data.
+- **Counting rule to note in the paper:** products with zero padding are not
+  counted in either arm (conv1: 640 000 synapses, vs 665 856 MACs that tools
+  such as ptflops report when padding is included). Biases, pooling additions
+  and output averaging are not counted.
+- **Consequences:**
+  - Gives a second, hardware-free cost axis at inference, next to the minimum
+    T (D-G) and the training budget in sample-time-steps (D-E).
+  - The energy figure is an estimate under stated assumptions (ignores memory
+    access); report counts as the primary quantity.

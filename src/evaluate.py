@@ -160,9 +160,14 @@ def evaluate_snn_grid_from_checkpoint(
     test_loaders_by_T: dict,
     device: torch.device,
     t_eval_grid: Optional[list] = None,
+    ops_out: Optional[dict] = None,
 ) -> dict:
     """
     Load a trained SNN checkpoint and evaluate at each T in the eval grid.
+
+    If ``ops_out`` is a dict, it is filled with {T: operation counts} from
+    src/opcount.py (SynOps, input MACs, spikes and firing rate per layer,
+    energy estimate; decision D-H), measured in the same pass as accuracy.
 
     For SNN-FT checkpoints: restores calibrated thresholds from the
     checkpoint payload (stored as 'calibrated_thresholds' by train_snn_hybrid).
@@ -209,10 +214,25 @@ def evaluate_snn_grid_from_checkpoint(
     missing = [T for T in t_eval_grid if T not in test_loaders_by_T]
     if missing:
         raise KeyError(f"no re-binned loader for T={missing}")
+    ann_total = None
+    if ops_out is not None:
+        from src.opcount import SNNOpCounter, ann_macs
+        in_shape = (cfg.network.in_channels, cfg.preprocess.sensor_height, cfg.preprocess.sensor_width)
+        ann_ref = ANN(in_channels=cfg.network.in_channels, conv1_out=cfg.network.conv1_out,
+                      conv2_out=cfg.network.conv2_out, fc1_out=cfg.network.fc1_out,
+                      n_classes=cfg.network.n_classes)
+        ann_total = sum(ann_macs(ann_ref, in_shape).values())
     for T in sorted(t_eval_grid):
-        loss, acc = evaluate(
-            model, test_loaders_by_T[T], criterion, device, is_snn=True, T=T,
-        )
+        if ops_out is None:
+            loss, acc = evaluate(
+                model, test_loaders_by_T[T], criterion, device, is_snn=True, T=T,
+            )
+        else:
+            with SNNOpCounter(model, in_shape, ann_macs_total=ann_total) as counter:
+                loss, acc = evaluate(
+                    model, test_loaders_by_T[T], criterion, device, is_snn=True, T=T,
+                )
+            ops_out[T] = counter.result()
         results[T] = (loss, acc)
 
     return results

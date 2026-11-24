@@ -41,6 +41,7 @@ Each value is one of four kinds (explained in [`PRIMER.md`](PRIMER.md) §10):
 | Init target firing rate | **P** | Validation sweep over {1, 2, 5, 10, 20} %, 2 seeds; rule: best mean validation accuracy, ties within 1 pp → lower rate (§4.2) |
 | Optimiser, learning rates, epochs, patience, clipping | S / inherited | Kept from protocol v1.0 (§6); standard Adam + cosine settings. Not tuned per arm, for fairness |
 | 2-pp accuracy criterion, test-based | D | Research plan (D-C) |
+| Op counts: SynOps = spikes × fan-out; input MACs = non-zero events × fan-out; padding excluded | S | SNN literature convention; see DECISIONS D-H. Energy constants MAC 4.6 pJ / AC 0.9 pJ from Horowitz (ISSCC 2014), 45 nm |
 | Seed count | P (pending) | To be chosen after the pilot from variance and time per seed (plan Sec. 2.1) |
 
 ## 1. Data and preprocessing

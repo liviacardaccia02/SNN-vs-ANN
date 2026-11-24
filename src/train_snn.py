@@ -187,7 +187,8 @@ def train_snn_sg(
         )
         epoch_logs.append(log)
 
-        if val_acc > best_val_acc:
+        is_best = val_acc > best_val_acc   # strict improvement in validation accuracy
+        if is_best:
             best_val_acc = val_acc
             best_epoch = epoch
             save_checkpoint(
@@ -207,7 +208,7 @@ def train_snn_sg(
                 f"train  loss={train_loss:.4f} acc={train_acc:.4f} | "
                 f"val    loss={val_loss:.4f} acc={val_acc:.4f} | "
                 f"time={epoch_elapsed:.1f}s"
-                + (" ← best" if val_acc == best_val_acc else "")
+                + (" ← new best val acc (checkpoint saved)" if is_best else "")
             )
 
         if early_stopping.step(val_acc, epoch):
@@ -432,7 +433,8 @@ def train_snn_hybrid(
         )
         ft_epoch_logs.append(log)
 
-        if val_acc > ft_best_val_acc:
+        is_best = val_acc > ft_best_val_acc   # strict improvement in validation accuracy
+        if is_best:
             ft_best_val_acc = val_acc
             ft_best_epoch = epoch
             save_checkpoint(
@@ -458,7 +460,7 @@ def train_snn_hybrid(
                 f"train  loss={train_loss:.4f} acc={train_acc:.4f} | "
                 f"val    loss={val_loss:.4f} acc={val_acc:.4f} | "
                 f"time={epoch_elapsed:.1f}s"
-                + (" ← best" if val_acc == ft_best_val_acc else "")
+                + (" ← new best val acc (checkpoint saved)" if is_best else "")
             )
 
         if early_stopping.step(val_acc, epoch):

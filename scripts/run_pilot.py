@@ -370,19 +370,39 @@ def main():
         cfg, 'test', indices=test_subset,
         batch_size=dataloaders['test'].batch_size,
     )
+    sg_ops_by_T: dict = {}
     sg_accs_by_T = evaluate_snn_grid_from_checkpoint(
-        sg_result.checkpoint_path, cfg, test_loaders_by_T, device,
+        sg_result.checkpoint_path, cfg, test_loaders_by_T, device, ops_out=sg_ops_by_T,
     )
     sg_eval = compute_eval_result(seed, 'snn_sg', ann_test_acc, sg_accs_by_T, cfg)
 
     section('Evaluating SNN-FT at each T')
+    ft_ops_by_T: dict = {}
     ft_accs_by_T = evaluate_snn_grid_from_checkpoint(
-        ft_res.checkpoint_path, cfg, test_loaders_by_T, device,
+        ft_res.checkpoint_path, cfg, test_loaders_by_T, device, ops_out=ft_ops_by_T,
     )
     ft_eval = compute_eval_result(seed, 'snn_ft', ann_test_acc, ft_accs_by_T, cfg)
 
     section('Results table')
     print_eval_table(sg_eval, ft_eval, threshold_s)
+
+    # Decision D-H: hardware-independent operation counts (src/opcount.py),
+    # measured on the test set in the same pass as the accuracies above.
+    section('Operation counts per test sample (D-H; hardware-independent)')
+    ann_macs_total = next(iter(sg_ops_by_T.values()))['ann_macs']
+    print(f'  ANN reference: {ann_macs_total:,} MACs  '
+          f'(est. {next(iter(sg_ops_by_T.values()))["ann_energy_pj_est"] / 1e3:.1f} nJ)')
+    print(f'  {"Method":7s} {"T":>3s} | {"SynOps (AC)":>12s} {"input MACs":>11s} | '
+          f'{"rate l1/l2/l3":>17s} | {"est. nJ":>7s} {"vs ANN":>6s} | {"dense-sim MACs":>14s}')
+    for name, ops_by_T in (('SNN-SG', sg_ops_by_T), ('SNN-FT', ft_ops_by_T)):
+        for T, o in sorted(ops_by_T.items()):
+            r = o['firing_rate_per_layer']
+            print(f'  {name:7s} {T:3d} | {o["synops_ac"]:12,.0f} {o["input_macs_event"]:11,.0f} | '
+                  f'{r["lif1"]:.3f}/{r["lif2"]:.3f}/{r["lif3"]:.3f} | '
+                  f'{o["energy_pj_est"] / 1e3:7.1f} {o["energy_ratio_snn_over_ann"]:6.2f} | '
+                  f'{o["dense_macs_equivalent"]:14,}')
+    print('  SynOps: spike x fan-out (additions). Input MACs: non-zero event counts x fan-out.')
+    print('  Energy: Horowitz 45 nm, MAC 4.6 pJ / AC 0.9 pJ (estimate; memory access ignored).')
 
     # Sensitivity of the accuracy-vs-T curve to HOW the T-step input is formed
     # (decision D-A). Primary outcome = rebin_scaled above; these are secondary.
@@ -468,6 +488,7 @@ def main():
                 'peak_gpu_mb': peak_mb_a,
             },
             'evaluation': sg_eval.to_dict(),
+            'op_counts_by_T': {str(T): o for T, o in sorted(sg_ops_by_T.items())},
         },
         'method_b_hybrid': {
             'training': {
@@ -500,6 +521,7 @@ def main():
                 'peak_gpu_mb': peak_mb_b,
             },
             'evaluation': ft_eval.to_dict(),
+            'op_counts_by_T': {str(T): o for T, o in sorted(ft_ops_by_T.items())},
         },
         'pilot_checks': [
             {'label': label, 'passed': passed, 'detail': detail}

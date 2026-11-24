@@ -336,16 +336,35 @@ def test_exact_percentile_above_torch_quantile_limit():
     assert exact_percentile(v, 50.0) == pytest.approx((n - 1) / 2, rel=1e-6)
 
 
+def test_streaming_pearson_formula_matches_corrcoef():
+    """The running-sum Pearson formula used by conversion_fidelity, on fixed
+    numbers (no spiking, so no threshold sensitivity)."""
+    g = torch.Generator().manual_seed(0)
+    a = torch.rand(50_000, generator=g, dtype=torch.float64)
+    r = 0.7 * a + 0.3 * torch.rand(50_000, generator=g, dtype=torch.float64)
+    sums = torch.zeros(6, dtype=torch.float64)
+    for ca, cr in zip(a.split(777), r.split(777)):            # uneven chunks, as in batching
+        sums += torch.stack([torch.tensor(float(ca.numel()), dtype=torch.float64),
+                             ca.sum(), cr.sum(), (ca * ca).sum(), (cr * cr).sum(), (ca * cr).sum()])
+    m, sx, sy, sxx, syy, sxy = (float(v) for v in sums)
+    mx, my = sx / m, sy / m
+    corr = (sxy / m - mx * my) / ((sxx / m - mx * mx) * (syy / m - my * my)) ** 0.5
+    assert corr == pytest.approx(float(torch.corrcoef(torch.stack([a, r]))[0, 1]), abs=1e-10)
+
+
 def test_streaming_correlation_equals_batch_correlation(separable):
-    """Fidelity correlations are now computed from running sums; they must
-    equal the direct computation."""
+    """End to end: the gate's streamed correlation equals a direct computation
+    over the SAME batches. (Different batch sizes change floating-point
+    rounding, which can flip near-threshold spikes; the first version of this
+    test used one 60-sample batch and failed on Colab for that reason.)"""
     x, y = separable
     ann = _trained_ann(x, y)
     snn, info = convert(ann, make_snn(), ann_loader(x, y, 10), input_map="fitted")
     rep = conversion_fidelity(ann, snn, ann_loader(x, y, 10), _seq_loader(x, y), info["lambdas"])
     from src.conversion import _layer_rates_and_targets
-    r, u = _layer_rates_and_targets(ann, snn, [x], [x.unsqueeze(1).expand(-1, T, -1, -1, -1)],
-                                    info["lambdas"], 0)
-    direct = float(torch.corrcoef(torch.stack([u, r]))[0, 1])
+    xa = list(x.split(10))
+    xs = [c.unsqueeze(1).expand(-1, T, -1, -1, -1).contiguous() for c in x.split(10)]
+    r, u = _layer_rates_and_targets(ann, snn, xa, xs, info["lambdas"], 0)
+    direct = float(torch.corrcoef(torch.stack([u.double(), r.double()]))[0, 1])
     assert rep.layer_rate_correlation["lif1"] == pytest.approx(direct, abs=1e-6)
     assert rep.layer_mean_rate["lif1"] == pytest.approx(float(r.mean()), abs=1e-6)

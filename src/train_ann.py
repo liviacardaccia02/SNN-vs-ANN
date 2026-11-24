@@ -152,7 +152,8 @@ def train_ann(
         epoch_logs.append(log)
 
         # ---- Best model checkpoint ----
-        if val_acc > best_val_acc:
+        is_best = val_acc > best_val_acc   # strict improvement in validation accuracy
+        if is_best:
             best_val_acc = val_acc
             best_epoch = epoch
             save_checkpoint(
@@ -170,7 +171,7 @@ def train_ann(
                 f"train  loss={train_loss:.4f} acc={train_acc:.4f} | "
                 f"val    loss={val_loss:.4f} acc={val_acc:.4f} | "
                 f"time={epoch_elapsed:.1f}s"
-                + (" ← best" if val_acc == best_val_acc else "")
+                + (" ← new best val acc (checkpoint saved)" if is_best else "")
             )
 
         if early_stopping.step(val_acc, epoch):
