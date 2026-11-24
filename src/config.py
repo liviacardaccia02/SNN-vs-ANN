@@ -4,7 +4,7 @@ Central configuration for the SNN-vs-ANN experiment.
 All hyperparameters live here. Do not hard-code values anywhere else.
 Import with:  from src.config import get_config
 
-Protocol version: v2.1-draft  (2026-11-22)   — supersedes v1.0 / v2.0-draft.
+Protocol version: v2.2-draft  (2026-11-24)   — supersedes v2.1-draft, v2.0-draft, v1.0.
 Decision log with rationale: docs/DECISIONS.md.
 
 Unchanged from v1.0:
@@ -25,6 +25,9 @@ Changed (see docs/DECISIONS.md):
          fidelity check on validation data before fine-tuning.
   - D-F  Direct-SG arm: data-driven per-layer weight-gain initialisation so
          that no LIF layer is silent at initialisation.
+  - D-I  (after the pilot) Main experiment = protocol P2: both SNNs trained
+         separately at every T in {1, 2, 3, 6, 12, 24}; one ANN per seed,
+         reused at every T; fine-tuning max 30 epochs; seeds {0, 1, 2}.
 """
 
 from __future__ import annotations
@@ -169,10 +172,14 @@ class SNNConfig:
     equal preprocess.n_time_bins (checked by validate_config). 24 keeps the
     position of the old 16 in the grid (3 smaller values, 1 larger; D-G)."""
 
-    t_eval_grid: List[int] = field(default_factory=lambda: [3, 6, 12, 24, 48])
-    """Inference time-step grid (D-G; was {2, 4, 8, 16, 32}). Factor-2 spacing
-    kept; multiples of 3 make every bin lie inside a single 105-ms saccade.
-    The primary outcome is the smallest T where test accuracy >= threshold."""
+    t_eval_grid: List[int] = field(default_factory=lambda: [1, 2, 3, 6, 12, 24])
+    """Time-step grid (D-G, revised by D-I). Under P2 (main experiment) both
+    SNNs are trained AND evaluated at every T in this grid. The pilot showed
+    both arms qualify at T = 3 under P2, so T = 1, 2 were added to keep the
+    primary outcome (smallest qualifying T) discriminative; T = 48 was dropped
+    (most expensive, irrelevant for a minimum). T = 3, 6, 12, 24 put bin edges
+    on the 105/210-ms saccade boundaries; T = 1 has no interior edge; T = 2
+    splits the middle saccade (limitation, reported)."""
 
     t_eval_interpretation: str = "rebin_full_window"
     """D-A: at inference T, the SAME [0, 315 ms) window is re-binned into T
@@ -209,7 +216,9 @@ class TrainConfig:
     ann_batch_size: int = 128
 
     # ---- Hybrid fine-tuning (ANN→SNN then SG fine-tune) ----
-    snn_ft_epochs: int = 10
+    snn_ft_epochs: int = 30
+    """D-I: was 10. Same rule as the other phases (max 30, early stopping
+    with patience 7); the pilot's T=24 fine-tuning was still improving at 10."""
     snn_ft_lr: float = 1e-4       # lower LR for fine-tuning pre-trained weights
     snn_ft_weight_decay: float = 1e-4
     snn_ft_batch_size: int = 128
@@ -231,6 +240,12 @@ class TrainConfig:
     """Maximum L2-norm of the gradient vector for SNN training.
     Clip to this value before each optimizer step to prevent exploding gradients
     through the surrogate gradient path. ANN training is not clipped (None)."""
+
+    ann_reference_bins: int = 24
+    """D-I: the single ANN of each seed is trained on the mean over this many
+    bins (= total events / 24). Converting it for a SNN at T multiplies its
+    conv1 weights by T / ann_reference_bins, because the mean over T bins is
+    total / T; the ANN function, accuracy and threshold are then identical."""
 
     # ---- Threshold calibration (Method B only) ----
     calib_batches: int = 10
@@ -289,9 +304,10 @@ class TrainConfig:
 
 @dataclass
 class ExperimentConfig:
-    seeds: List[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
-    """Five random seeds (provisional). Each seed produces one paired observation
-    (one ANN+hybrid run AND one direct-SG run). Post-pilot decision may change count."""
+    seeds: List[int] = field(default_factory=lambda: [0, 1, 2])
+    """D-I: three seeds (was five, provisional). Each seed gives one paired
+    observation per T. Chosen from the pilot's wall time (~10 h per seed for
+    P2 on a Colab T4) and the report deadline; a limitation to report."""
 
     accuracy_margin: float = 0.02
     """Accuracy threshold margin in absolute percentage points (2 pp).
@@ -307,7 +323,7 @@ class ExperimentConfig:
     checkpoint_dir: str = "./checkpoints"
     log_dir: str = "./logs"
 
-    protocol_version: str = "v2.1-draft"
+    protocol_version: str = "v2.2-draft"
     """Increment when any locked decision changes. Old runs must be re-run or
     marked as belonging to a different protocol version."""
 

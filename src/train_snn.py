@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -244,6 +245,15 @@ def train_snn_sg(
 # Method B — Hybrid: ANN pre-train → convert → SNN fine-tune
 # ---------------------------------------------------------------------------
 
+def ann_input_scale_for(cfg: Config, ann_input_bins: Optional[int]) -> float:
+    """Factor for the conv1 weights of an ANN trained on the mean over
+    ``ann_input_bins`` bins so that it reads the representation at
+    T = cfg.snn.t_train (D-I). 'sum_over_bins' does not depend on T."""
+    if ann_input_bins is None or cfg.preprocess.ann_representation == "sum_over_bins":
+        return 1.0
+    return cfg.snn.t_train / ann_input_bins
+
+
 def train_snn_hybrid(
     cfg: Config,
     seed: int,
@@ -252,9 +262,19 @@ def train_snn_hybrid(
     device: torch.device,
     checkpoint_dir: Path,
     verbose: bool = True,
+    pretrained_ann: Optional[TrainingResult] = None,
+    ann_input_bins: Optional[int] = None,
 ) -> HybridTrainingResult:
     """
     Method B: ANN pre-training + ANN→SNN conversion + SNN fine-tuning.
+
+    Decision D-I (one ANN per seed): pass ``pretrained_ann`` (the seed's ANN,
+    trained once on the mean over ``ann_input_bins`` bins) to skip Phase 1.
+    Its conv1 weights are multiplied by T / ann_input_bins before conversion,
+    so it computes exactly the same function on the mean over T bins that
+    ann_dataloaders provide (mean over T bins = total events / T). The ANN
+    training budget is still included in the result (it is part of the cost
+    of producing this SNN), and conversion_info records the reuse.
 
     Phase 1 — ANN training:
       Calls train_ann() to produce a trained ANN checkpoint.
@@ -301,9 +321,15 @@ def train_snn_hybrid(
         print(f"[Hybrid seed={seed:02d}] Phase 1: ANN pre-training")
         print(f"{'='*60}")
 
-    ann_result = train_ann(
-        cfg, seed, ann_dataloaders, device, checkpoint_dir, verbose=verbose,
-    )
+    if pretrained_ann is None:
+        ann_result = train_ann(
+            cfg, seed, ann_dataloaders, device, checkpoint_dir, verbose=verbose,
+        )
+    else:
+        ann_result = pretrained_ann
+        if verbose:
+            print(f"[Hybrid seed={seed:02d}] reusing the seed's ANN "
+                  f"({ann_result.checkpoint_path}; trained on mean over {ann_input_bins} bins)")
 
     # =========================================================
     # Phase 2 — ANN→SNN conversion
@@ -323,6 +349,10 @@ def train_snn_hybrid(
     ).to(device)
     load_model_from_checkpoint(ann_result.checkpoint_path, ann_model)
     ann_model.eval()
+    ann_input_scale = ann_input_scale_for(cfg, ann_input_bins) if pretrained_ann is not None else 1.0
+    if ann_input_scale != 1.0:
+        with torch.no_grad():
+            ann_model.features[0].weight.mul_(ann_input_scale)
 
     # Build SNN and convert
     snn_model = SNN(
@@ -348,6 +378,8 @@ def train_snn_hybrid(
         refine_batches=cfg.train.conversion_refine_batches,
     )
     calibrated_thresholds = conversion_info['thresholds']
+    conversion_info['ann_reused'] = pretrained_ann is not None
+    conversion_info['ann_input_scale'] = ann_input_scale
     if verbose:
         print(f"[Hybrid seed={seed:02d}] lambdas: "
               + ", ".join(f"{k}={v:.4f}" for k, v in conversion_info['lambdas'].items()))

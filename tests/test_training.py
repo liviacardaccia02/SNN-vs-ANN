@@ -484,3 +484,28 @@ def test_hybrid_staged_gate_refuses_when_sanity_fails(cfg, synthetic_loaders, sy
                          ann_dataloaders=synthetic_ann_loaders, device=device,
                          checkpoint_dir=checkpoint_dir, verbose=False)
     assert e.value.report.gate_outcome == 'fail'
+
+
+# ---------------------------------------------------------------------------
+# D-I: one ANN per seed, reused at every T by rescaling conv1
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("T", [1, 2, 3, 6, 12])
+def test_reused_ann_rescaled_conv1_is_the_same_function(T):
+    """ANN trained on total/24 must give identical logits on total/T after
+    conv1 weights are multiplied by T/24 (ann_input_scale_for)."""
+    import copy
+    from src.config import get_config
+    from src.models.ann import ANN
+    from src.train_snn import ann_input_scale_for
+    torch.manual_seed(0)
+    ann = ANN().eval()
+    total = torch.poisson(torch.full((4, 2, 34, 34), 3.0))
+    ref = ann(total / 24)
+    c = get_config()
+    c.snn.t_train = c.preprocess.n_time_bins = T
+    scaled = copy.deepcopy(ann)
+    with torch.no_grad():
+        scaled.features[0].weight.mul_(ann_input_scale_for(c, 24))
+    assert torch.allclose(scaled(total / T), ref, atol=1e-5)
+    assert ann_input_scale_for(c, None) == 1.0

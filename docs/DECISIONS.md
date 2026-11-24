@@ -329,3 +329,54 @@ interpretation · evidence. "Decided by team" = decided by Tytus Felbor
     T (D-G) and the training budget in sample-time-steps (D-E).
   - The energy figure is an estimate under stated assumptions (ignores memory
     access); report counts as the primary quantity.
+
+## D-I · Pilot outcome and main-experiment protocol (P2)
+
+Pilot: seed 0, full N-MNIST, Colab T4, commit `5b80e9c`, 2026-11-23. Logs and
+`results.json` in Drive `snn_results/pilot_seed00_Ttrain24` and `…_Ttrain3`.
+
+- **Gate recheck (D-B), fully trained ANN.**
+  - At T = 24 (ANN val 97.48 %): converted SNN 83.63 %, agreement 83.8 % →
+    strict FAIL, sanity PASS (≥ 53.7 %).
+  - At T = 3 (ANN val 98.08 %): converted SNN 89.65 %, agreement 90.2 % →
+    strict FAIL (accuracy drop 8.4 pp), sanity PASS.
+  - Fine-tuning closed the gap in both cases: val 97.92 % (T = 24) and
+    98.08 % (T = 3).
+- **P1 vs P2 (rule fixed in D-A).**
+  - Test accuracy at T = 3:
+    - SG: P1 15.3 %, P2 98.8 % (+83.4 pp).
+    - Hybrid: P1 91.7 %, P2 97.7 % (+6.1 pp).
+  - The sensitivity variants disagree with each other (min T under
+    `rebin_raw`: 12 / 12; under `prefix`: 12 / 24).
+  - The rule says keep P1 only if P2 is within 1–2 pp, so **P2 becomes the
+    main protocol.** Under P1, accuracy at T ≠ 24 measured robustness to a
+    train/test resolution mismatch, not the number of steps each method needs.
+- **Floor effect found by the pilot.** Under P2 both arms qualify at T = 3,
+  the smallest grid value, so minimum T could not separate them.
+- **Decisions (team, 2026-11-24):**
+  1. **Grid {1, 2, 3, 6, 12, 24}.**
+     - T = 1, 2 added to restore discrimination.
+     - T = 48 dropped (most expensive, irrelevant for a minimum).
+     - T = 1 has no interior bin edge. T = 2 puts an edge at 157.5 ms, inside
+       the middle saccade (limitation to report).
+  2. **One ANN per seed.**
+     - Trained once on the mean over 24 bins and reused at every T: conv1
+       weights × T/24, which is exactly the same function on the mean over T
+       bins (unit-tested).
+     - Hence one fixed threshold per seed.
+     - The pilot's T_train = 3 run retrained the ANN, which moved the
+       threshold (97.15 % vs 97.88 %).
+     - The ANN's training budget is still counted in every T's hybrid cost.
+  3. **Fine-tuning max 30 epochs** (was 10), patience 7: the same rule as
+     the other phases. At T = 24 validation accuracy was still rising at
+     epoch 10. Part of that rise is the cosine schedule annealing at its end.
+  4. **Seeds {0, 1, 2}** (was 5): limited by compute and the report deadline.
+     A limitation to report.
+- **Cost estimate (upper bound, no early stopping):**
+  - Per-epoch time measured at T = 3 and 24; other T interpolated linearly.
+  - ≈ 10 h per seed: SG ≈ 4.8 h + fine-tuning ≈ 4.8 h + ANN 0.5 h.
+  - ≈ 30 h for 3 seeds sequentially, or about 10 h with one Colab session
+    per seed.
+- **Runner:** `scripts/run_main.py`.
+  - Resumable: one `result.json` per (seed, T).
+  - Records the operation counts of D-H at every T.
