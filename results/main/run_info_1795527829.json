@@ -1,0 +1,25 @@
+{
+  "hardware": {
+    "platform": "Linux-6.6.159+-x86_64-with-glibc2.39",
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "cuda_available": true,
+    "spikingjelly": "0.0.0.0.14",
+    "cuda_device": "Tesla T4",
+    "cuda_version": "13.0",
+    "cudnn_version": "92800"
+  },
+  "seeds": [
+    0
+  ],
+  "grid": [
+    1,
+    2,
+    3,
+    6,
+    12,
+    24
+  ],
+  "smoke_test": false,
+  "protocol_version": "v2.2-draft"
+}

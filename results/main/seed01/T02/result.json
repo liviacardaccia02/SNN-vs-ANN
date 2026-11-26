@@ -1,0 +1,252 @@
+{
+  "seed": 1,
+  "T": 2,
+  "threshold_s": 0.9541999999999999,
+  "ann_test_acc": 0.9742,
+  "protocol_version": "v2.2-draft",
+  "hybrid": {
+    "status": "ok",
+    "test_acc": 0.9722,
+    "test_loss": 0.11528427898176015,
+    "qualifies": true,
+    "conversion_fidelity": {
+      "n_samples": 12000,
+      "T": 2,
+      "ann_acc": 0.9758333333333333,
+      "snn_acc": 0.8746666666666667,
+      "agreement": 0.87975,
+      "layer_rate_correlation": {
+        "lif1": 0.9170550016453286,
+        "lif2": 0.8325100860284731,
+        "lif3": 0.8098879464238249
+      },
+      "layer_mean_rate": {
+        "lif1": 0.09055972800425317,
+        "lif2": 0.045350634371395616,
+        "lif3": 0.07626481119791667
+      },
+      "layer_mean_target_rate": {
+        "lif1": 0.13846624946338193,
+        "lif2": 0.056280755283173015,
+        "lif3": 0.08059662541125763
+      },
+      "max_acc_drop": 0.02,
+      "min_agreement": 0.9,
+      "passed": false,
+      "reasons": [
+        "accuracy drop 0.1012 > 0.02",
+        "prediction agreement 0.8798 < 0.9"
+      ],
+      "chance": 0.1,
+      "sanity_fraction": 0.5,
+      "sanity_threshold": 0.5379166666666667,
+      "sanity_passed": true,
+      "gate_outcome": "sanity_pass"
+    },
+    "conversion_info": {
+      "method": "layerwise_norm_lif_data_fitted",
+      "thresholds": {
+        "lif1": 1.0,
+        "lif2": 1.0,
+        "lif3": 1.0
+      },
+      "lambdas": {
+        "conv1": 2.231987195014952,
+        "conv2": 5.200232000350958,
+        "fc1": 16.738160343170186
+      },
+      "percentile": 99.0,
+      "input_map": "data_fitted",
+      "c": 0.98,
+      "k": 1.36,
+      "map_rmse": 0.1436786829739231,
+      "per_layer_map": {
+        "lif1": {
+          "c": 1.0,
+          "k": 1.4,
+          "rate_mse": 0.011417146772146225
+        },
+        "lif2": {
+          "c": 0.9,
+          "k": 1.4,
+          "rate_mse": 0.010226809419691563
+        },
+        "lif3": {
+          "c": 1.1,
+          "k": 1.4,
+          "rate_mse": 0.013770362362265587
+        }
+      },
+      "refine_forward_sample_timesteps": 460800,
+      "ann_reused": true,
+      "ann_input_scale": 0.08333333333333333
+    },
+    "ft_training": {
+      "best_epoch": 19,
+      "best_val_acc": 0.975333,
+      "total_epochs": 26,
+      "total_updates": 9750,
+      "total_wall_s": 1649.885,
+      "early_stopped": true,
+      "train_sample_timesteps": 2496000,
+      "val_acc_per_epoch": [
+        0.958,
+        0.96375,
+        0.96475,
+        0.968,
+        0.967833,
+        0.967917,
+        0.97,
+        0.971583,
+        0.97075,
+        0.973667,
+        0.97225,
+        0.9735,
+        0.973333,
+        0.974,
+        0.97475,
+        0.974167,
+        0.974167,
+        0.974833,
+        0.975333,
+        0.973583,
+        0.97375,
+        0.974333,
+        0.974,
+        0.9735,
+        0.975167,
+        0.974167
+      ]
+    },
+    "train_sample_timesteps_total": 3936000,
+    "train_sample_timesteps_ann": 1440000,
+    "train_sample_timesteps_ft": 2496000,
+    "op_counts": {
+      "T": 2,
+      "n_samples": 10000,
+      "synops_ac": 6077610.1646,
+      "synops_ac_per_layer": {
+        "lif1": 5617391.776,
+        "lif2": 459659.5456,
+        "lif3": 558.843
+      },
+      "input_macs_event": 322485.5296,
+      "input_macs_dense": 1280000,
+      "input_nonzero_fraction": 0.24308092560553635,
+      "spikes_per_layer": {
+        "lif1": 9757.7059,
+        "lif2": 1823.6938,
+        "lif3": 55.8843
+      },
+      "firing_rate_per_layer": {
+        "lif1": 0.13188940716911765,
+        "lif2": 0.04929968101211073,
+        "lif3": 0.1091490234375
+      },
+      "neuron_updates": 111488,
+      "energy_pj_est": 6953282.5843,
+      "dense_macs_equivalent": 13216768,
+      "ann_macs": 6608384,
+      "ann_energy_pj_est": 30398566.4,
+      "energy_ratio_snn_over_ann": 0.22873718756355566
+    },
+    "peak_gpu_mb": 413.0,
+    "wall_s_ft": 1701.973
+  },
+  "sg": {
+    "status": "ok",
+    "test_acc": 0.9865,
+    "test_loss": 0.03829312739744783,
+    "qualifies": true,
+    "training": {
+      "best_epoch": 28,
+      "best_val_acc": 0.987833,
+      "total_epochs": 30,
+      "total_updates": 11250,
+      "total_wall_s": 1974.497,
+      "early_stopped": false,
+      "train_sample_timesteps": 2880000,
+      "val_acc_per_epoch": [
+        0.9595,
+        0.97025,
+        0.974667,
+        0.975417,
+        0.97775,
+        0.979833,
+        0.979333,
+        0.981833,
+        0.977583,
+        0.98125,
+        0.983,
+        0.981583,
+        0.978333,
+        0.982917,
+        0.983917,
+        0.984167,
+        0.9825,
+        0.98375,
+        0.984333,
+        0.984333,
+        0.98575,
+        0.985917,
+        0.98675,
+        0.986333,
+        0.985917,
+        0.986333,
+        0.986417,
+        0.987833,
+        0.986583,
+        0.987167
+      ]
+    },
+    "init_calibration": {
+      "lif1": {
+        "gain": 0.8976871324473147,
+        "rate_before": 0.0579970204706423,
+        "rate_after": 0.04983905937432418
+      },
+      "lif2": {
+        "gain": 8.65964323360066,
+        "rate_before": 0.0,
+        "rate_after": 0.05143009172591371
+      },
+      "lif3": {
+        "gain": 8.65964323360066,
+        "rate_before": 0.0,
+        "rate_after": 0.04669952392578125
+      }
+    },
+    "train_sample_timesteps_total": 2880000,
+    "op_counts": {
+      "T": 2,
+      "n_samples": 10000,
+      "synops_ac": 4857620.992,
+      "synops_ac_per_layer": {
+        "lif1": 4309543.0848,
+        "lif2": 545718.5792,
+        "lif3": 2359.328
+      },
+      "input_macs_event": 322485.5296,
+      "input_macs_dense": 1280000,
+      "input_nonzero_fraction": 0.24308092560553635,
+      "spikes_per_layer": {
+        "lif1": 7487.1317,
+        "lif2": 2141.3413,
+        "lif3": 235.9328
+      },
+      "firing_rate_per_layer": {
+        "lif1": 0.10119933634299308,
+        "lif2": 0.05788660521193772,
+        "lif3": 0.46080625
+      },
+      "neuron_updates": 111488,
+      "energy_pj_est": 5855292.32896,
+      "dense_macs_equivalent": 13216768,
+      "ann_macs": 6608384,
+      "ann_energy_pj_est": 30398566.4,
+      "energy_ratio_snn_over_ann": 0.19261738372504303
+    },
+    "peak_gpu_mb": 274.8
+  },
+  "wall_s": 3690.343
+}

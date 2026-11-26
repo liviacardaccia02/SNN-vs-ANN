@@ -1,0 +1,283 @@
+{
+  "grid": [
+    1,
+    2,
+    3,
+    6,
+    12,
+    24
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "per_seed": {
+    "0": {
+      "complete": true,
+      "min_T_sg": 1,
+      "min_T_hybrid": 1,
+      "threshold_s": 0.9525
+    },
+    "1": {
+      "complete": true,
+      "min_T_sg": 1,
+      "min_T_hybrid": 1,
+      "threshold_s": 0.9541999999999999
+    },
+    "2": {
+      "complete": true,
+      "min_T_sg": 1,
+      "min_T_hybrid": 1,
+      "threshold_s": 0.9551
+    }
+  },
+  "per_T": {
+    "1": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9772666666666667,
+          0.0014294521094927832
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          2361361.4050666667,
+          161249.6776629785
+        ],
+        "energy_ratio_mean_sd": [
+          0.10452159164716399,
+          0.00477406427615878
+        ],
+        "train_sample_timesteps_mean": 1440000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9593333333333334,
+          0.00441172679722273
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          2755225.1157333334,
+          485508.8217234722
+        ],
+        "energy_ratio_mean_sd": [
+          0.1161825803574737,
+          0.014374294294060038
+        ],
+        "train_sample_timesteps_mean": 2672000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.017933333333333357,
+        0.005342596122984893
+      ]
+    },
+    "2": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9857666666666667,
+          0.0009451631252505233
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          4489726.9064,
+          319122.9984620458
+        ],
+        "energy_ratio_mean_sd": [
+          0.1817252688574156,
+          0.009448165904818485
+        ],
+        "train_sample_timesteps_mean": 2752000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9732,
+          0.0015620499351813224
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          5241252.715,
+          868111.9485269274
+        ],
+        "energy_ratio_mean_sd": [
+          0.20397543746207716,
+          0.02570189473389887
+        ],
+        "train_sample_timesteps_mean": 4192000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.01256666666666669,
+        0.001616580753731003
+      ]
+    },
+    "3": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9884999999999999,
+          0.0005291502622129227
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          7170062.549733333,
+          480947.39743953827
+        ],
+        "energy_ratio_mean_sd": [
+          0.26875983746522997,
+          0.014239245759154747
+        ],
+        "train_sample_timesteps_mean": 4320000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9755666666666667,
+          0.002138535324312746
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          7945592.230733333,
+          1414667.799843261
+        ],
+        "energy_ratio_mean_sd": [
+          0.29172068054301403,
+          0.0418835876371767
+        ],
+        "train_sample_timesteps_mean": 5664000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.012933333333333316,
+        0.0020526405757787585
+      ]
+    },
+    "6": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9902333333333333,
+          0.0011718930554164603
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          12381322.7912,
+          492002.11836150644
+        ],
+        "energy_ratio_mean_sd": [
+          0.4378064461171432,
+          0.014566539115652364
+        ],
+        "train_sample_timesteps_mean": 8640000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9794333333333333,
+          0.0016041612554021205
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          18515584.652533334,
+          2631261.6211082363
+        ],
+        "energy_ratio_mean_sd": [
+          0.619421447382466,
+          0.0779028664653545
+        ],
+        "train_sample_timesteps_mean": 9696000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.010800000000000032,
+        0.0017435595774162684
+      ]
+    },
+    "12": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9914666666666666,
+          0.0007637626158259498
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          21164895.933733333,
+          714302.0897659763
+        ],
+        "energy_ratio_mean_sd": [
+          0.7114470160448093,
+          0.021148098641565485
+        ],
+        "train_sample_timesteps_mean": 17280000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9807333333333333,
+          0.0009291573243177821
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          34803047.79606667,
+          5551188.816512724
+        ],
+        "energy_ratio_mean_sd": [
+          1.1152271323367409,
+          0.1643521562537059
+        ],
+        "train_sample_timesteps_mean": 16032000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.010733333333333336,
+        0.0004041451884327256
+      ]
+    },
+    "24": {
+      "n_seeds": 3,
+      "sg": {
+        "acc_mean_sd": [
+          0.9908333333333333,
+          0.0010969655114602744
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          35906912.10673333,
+          2103935.3896266897
+        ],
+        "energy_ratio_mean_sd": [
+          1.1708472308187534,
+          0.062290498365870986
+        ],
+        "train_sample_timesteps_mean": 30336000,
+        "n_gate_fail": 0
+      },
+      "hybrid": {
+        "acc_mean_sd": [
+          0.9811333333333333,
+          0.0019425069712444786
+        ],
+        "n_qualify": 3,
+        "synops_mean_sd": [
+          66170277.205066666,
+          11390713.252665835
+        ],
+        "energy_ratio_mean_sd": [
+          2.0668443719372243,
+          0.33724096697531286
+        ],
+        "train_sample_timesteps_mean": 31776000,
+        "n_gate_fail": 0
+      },
+      "paired_acc_diff_hybrid_minus_sg": [
+        -0.009700000000000005,
+        0.000854400374531776
+      ]
+    }
+  }
+}
